@@ -3,13 +3,13 @@
 
 void Plane::init_barometer(bool full_calibration)
 {
-    gcs_send_text(MAV_SEVERITY_INFO, "Calibrating barometer");
+    gcs().send_text(MAV_SEVERITY_INFO, "Calibrating barometer");
     if (full_calibration) {
         barometer.calibrate();
     } else {
         barometer.update_calibration();
     }
-    gcs_send_text(MAV_SEVERITY_INFO, "Barometer calibration complete");
+    gcs().send_text(MAV_SEVERITY_INFO, "Barometer calibration complete");
 }
 
 void Plane::init_rangefinder(void)
@@ -85,7 +85,6 @@ void Plane::read_airspeed(void)
         if (should_log(MASK_LOG_IMU)) {
             Log_Write_Airspeed();
         }
-        calc_airspeed_errors();
 
         // supply a new temperature to the barometer from the digital
         // airspeed sensor if we can
@@ -95,6 +94,11 @@ void Plane::read_airspeed(void)
         }
     }
 
+    // we calculate airspeed errors (and thus target_airspeed_cm) even
+    // when airspeed is disabled as TECS may be using synthetic
+    // airspeed for a quadplane transition
+    calc_airspeed_errors();
+    
     // update smoothed airspeed estimate
     float aspeed;
     if (ahrs.airspeed_estimate(&aspeed)) {
@@ -108,7 +112,7 @@ void Plane::zero_airspeed(bool in_startup)
     read_airspeed();
     // update barometric calibration with new airspeed supplied temperature
     barometer.update_calibration();
-    gcs_send_text(MAV_SEVERITY_INFO,"Airspeed calibration started");
+    gcs().send_text(MAV_SEVERITY_INFO,"Airspeed calibration started");
 }
 
 // read_battery - reads battery voltage and current and invokes failsafe
@@ -118,8 +122,7 @@ void Plane::read_battery(void)
     battery.read();
     compass.set_current(battery.current_amps());
 
-    if (!usb_connected && 
-        hal.util->get_soft_armed() &&
+    if (hal.util->get_soft_armed() &&
         battery.exhausted(g.fs_batt_voltage, g.fs_batt_mah)) {
         low_battery_event();
     }

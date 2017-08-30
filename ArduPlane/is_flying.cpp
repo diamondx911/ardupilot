@@ -155,6 +155,9 @@ void Plane::update_is_flying_5Hz(void)
     if (should_log(MASK_LOG_MODE)) {
         Log_Write_Status();
     }
+
+    // tell AHRS flying state
+    ahrs.set_likely_flying(new_is_flying);
 }
 
 /*
@@ -277,9 +280,9 @@ void Plane::crash_detection_update(void)
 
         if (aparm.crash_detection_enable == CRASH_DETECT_ACTION_BITMASK_DISABLED) {
             if (crashed_near_land_waypoint) {
-                gcs_send_text(MAV_SEVERITY_CRITICAL, "Hard landing detected. No action taken");
+                gcs().send_text(MAV_SEVERITY_CRITICAL, "Hard landing detected. No action taken");
             } else {
-                gcs_send_text(MAV_SEVERITY_EMERGENCY, "Crash detected. No action taken");
+                gcs().send_text(MAV_SEVERITY_EMERGENCY, "Crash detected. No action taken");
             }
         }
         else {
@@ -287,9 +290,9 @@ void Plane::crash_detection_update(void)
                 disarm_motors();
             }
             if (crashed_near_land_waypoint) {
-                gcs_send_text(MAV_SEVERITY_CRITICAL, "Hard landing detected");
+                gcs().send_text(MAV_SEVERITY_CRITICAL, "Hard landing detected");
             } else {
-                gcs_send_text(MAV_SEVERITY_EMERGENCY, "Crash detected");
+                gcs().send_text(MAV_SEVERITY_EMERGENCY, "Crash detected");
             }
         }
     }

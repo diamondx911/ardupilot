@@ -3,6 +3,7 @@
 #include "AP_HAL_PX4.h"
 #include <systemlib/perf_counter.h>
 #include <uORB/topics/actuator_outputs.h>
+#include <uORB/topics/actuator_armed.h>
 
 #define PX4_NUM_OUTPUT_CHANNELS 16
 
@@ -39,11 +40,17 @@ public:
     void timer_tick(void) override;
     bool enable_sbus_out(uint16_t rate_hz) override;
 
+    // set default output update rate
+    void set_default_rate(uint16_t rate_hz) override;
+
 private:
     int _pwm_fd;
     int _alt_fd;
     uint16_t _freq_hz;
     uint16_t _period[PX4_NUM_OUTPUT_CHANNELS];
+    // we keep the last_sent value separately, as we need to keep the unscaled
+    // value for systems with brushed motors which scale outputs
+    uint16_t _last_sent[PX4_NUM_OUTPUT_CHANNELS];
     volatile uint8_t _max_channel;
     volatile bool _need_update;
     bool _sbus_enabled:1;
@@ -55,18 +62,18 @@ private:
     uint32_t _rate_mask_main;
     uint32_t _rate_mask_alt;
     uint16_t _enabled_channels;
+    uint32_t _period_max;
     struct {
         int pwm_sub;
         actuator_outputs_s outputs;
     } _outputs[ORB_MULTI_MAX_INSTANCES] {};
     actuator_armed_s _armed;
 
-    orb_advert_t _actuator_direct_pub = nullptr;
-    uint16_t _esc_pwm_min = 0;
-    uint16_t _esc_pwm_max = 0;
+    orb_advert_t _actuator_armed_pub;
+    uint16_t _esc_pwm_min;
+    uint16_t _esc_pwm_max;
 
     void _init_alt_channels(void);
-    void _publish_actuators(void);
     void _arm_actuators(bool arm);
     void set_freq_fd(int fd, uint32_t chmask, uint16_t freq_hz, uint32_t &rate_mask);
     bool _corking;
@@ -75,4 +82,5 @@ private:
     enum AP_HAL::Util::safety_state _safety_state_request = AP_HAL::Util::SAFETY_NONE;
     uint32_t _safety_state_request_last_ms = 0;
     void force_safety_pending_requests(void);
+    uint16_t _default_rate_hz = 50;
 };

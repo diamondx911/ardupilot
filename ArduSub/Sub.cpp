@@ -21,7 +21,7 @@ const AP_HAL::HAL& hal = AP_HAL::get_HAL();
   constructor for main Sub class
  */
 Sub::Sub(void) :
-    DataFlash {FIRMWARE_STRING},
+    DataFlash {FIRMWARE_STRING, g.log_bitmask},
           mission(ahrs,
                   FUNCTOR_BIND_MEMBER(&Sub::start_command, bool, const AP_Mission::Mission_Command &),
                   FUNCTOR_BIND_MEMBER(&Sub::verify_command_callback, bool, const AP_Mission::Mission_Command &),
@@ -62,7 +62,7 @@ Sub::Sub(void) :
           mainLoop_count(0),
           ServoRelayEvents(relay),
 #if CAMERA == ENABLED
-          camera(&relay),
+          camera(&relay, MASK_LOG_CAMERA, current_loc, gps, ahrs),
 #endif
 #if MOUNT == ENABLED
           camera_mount(ahrs, current_loc),

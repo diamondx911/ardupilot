@@ -111,10 +111,6 @@ void Scheduler::resume_timer_procs() {
     }
 }
 
-bool Scheduler::in_timerprocess() {
-    return _in_timer_proc || _in_io_proc;
-}
-
 void Scheduler::system_initialized() {
     if (_initialized) {
         AP_HAL::panic(
@@ -210,6 +206,7 @@ void Scheduler::_run_io_procs(bool called_from_isr)
     UARTDriver::from(hal.uartC)->_timer_tick();
     UARTDriver::from(hal.uartD)->_timer_tick();
     UARTDriver::from(hal.uartE)->_timer_tick();
+    UARTDriver::from(hal.uartF)->_timer_tick();
 }
 
 /*

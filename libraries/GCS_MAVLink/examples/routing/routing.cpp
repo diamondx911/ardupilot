@@ -21,6 +21,14 @@ public:
 protected:
 
     uint32_t telem_delay() const override { return 0; }
+    Compass *get_compass() const override { return nullptr; };
+    AP_Mission *get_mission() override { return nullptr; }
+    AP_Rally *get_rally() const override { return nullptr; }
+    AP_ServoRelayEvents *get_servorelayevents() const override { return nullptr; }
+    AP_GPS *get_gps() const override { return nullptr; };
+    AP_Camera *get_camera() const override { return nullptr; };
+    uint8_t sysid_my_gcs() const override { return 1; }
+    bool set_mode(uint8_t mode) override { return false; };
 
 private:
 
@@ -115,6 +123,5 @@ void loop(void)
     }
     hal.scheduler->delay(1000);
 }
-
 
 AP_HAL_MAIN();

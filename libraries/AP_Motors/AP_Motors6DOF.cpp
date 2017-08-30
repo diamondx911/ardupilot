@@ -89,6 +89,34 @@ const AP_Param::GroupInfo AP_Motors6DOF::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("FV_CPLNG_K", 9, AP_Motors6DOF, _forwardVerticalCouplingFactor, 1.0),
 
+    // @Param: 9_DIRECTION
+    // @DisplayName: Motor normal or reverse
+    // @Description: Used to change motor rotation directions without changing wires
+    // @Values: 1:normal,-1:reverse
+    // @User: Standard
+    AP_GROUPINFO("9_DIRECTION", 10, AP_Motors6DOF, _motor_reverse[8], 1),
+
+    // @Param: 10_DIRECTION
+    // @DisplayName: Motor normal or reverse
+    // @Description: Used to change motor rotation directions without changing wires
+    // @Values: 1:normal,-1:reverse
+    // @User: Standard
+    AP_GROUPINFO("10_DIRECTION", 11, AP_Motors6DOF, _motor_reverse[9], 1),
+
+    // @Param: 11_DIRECTION
+    // @DisplayName: Motor normal or reverse
+    // @Description: Used to change motor rotation directions without changing wires
+    // @Values: 1:normal,-1:reverse
+    // @User: Standard
+    AP_GROUPINFO("11_DIRECTION", 12, AP_Motors6DOF, _motor_reverse[10], 1),
+
+    // @Param: 12_DIRECTION
+    // @DisplayName: Motor normal or reverse
+    // @Description: Used to change motor rotation directions without changing wires
+    // @Values: 1:normal,-1:reverse
+    // @User: Standard
+    AP_GROUPINFO("12_DIRECTION", 13, AP_Motors6DOF, _motor_reverse[11], 1),
+
     AP_GROUPEND
 };
 
@@ -183,13 +211,11 @@ void AP_Motors6DOF::output_min()
 
     // fill the motor_out[] array for HIL use and send minimum value to each motor
     // ToDo find a field to store the minimum pwm instead of hard coding 1500
-    hal.rcout->cork();
     for (i=0; i<AP_MOTORS_MAX_NUM_MOTORS; i++) {
         if (motor_enabled[i]) {
             rc_write(i, 1500);
         }
     }
-    hal.rcout->push();
 }
 
 int16_t AP_Motors6DOF::calc_thrust_to_pwm(float thrust_in) const
@@ -233,13 +259,11 @@ void AP_Motors6DOF::output_to_motors()
     }
 
     // send output to each motor
-    hal.rcout->cork();
     for (i=0; i<AP_MOTORS_MAX_NUM_MOTORS; i++) {
         if (motor_enabled[i]) {
             rc_write(i, motor_out[i]);
         }
     }
-    hal.rcout->push();
 }
 
 // output_armed - sends commands to the motors
@@ -370,7 +394,7 @@ void AP_Motors6DOF::output_armed_stabilizing_vectored()
     if (forward_coupling_limit < 0) {
         forward_coupling_limit = 0;
     }
-    int8_t forward_coupling_direction[] = {-1,-1,1,1,0,0,0,0};
+    int8_t forward_coupling_direction[] = {-1,-1,1,1,0,0,0,0,0,0,0,0};
 
     // calculate linear command for each motor
     // linear factors should be 0.0 or 1.0 for now

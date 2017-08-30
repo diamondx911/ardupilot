@@ -16,35 +16,20 @@ public:
     };
 
     void init(void);
+    void init_safety(void);
 
     static const struct AP_Param::GroupInfo var_info[];
 
-#if HAL_WITH_UAVCAN
-    class CAN_var_info {
-        friend class AP_BoardConfig;
+    // notify user of a fatal startup error related to available sensors. 
+    static void sensor_config_error(const char *reason);
 
-    public:
-        CAN_var_info() : _uavcan(nullptr)
-        {
-            AP_Param::setup_object_defaults(this, var_info);
-        }
-        static const struct AP_Param::GroupInfo var_info[];
-
-    private:
-        AP_Int8 _can_enable;
-        AP_Int8 _can_debug;
-        AP_Int32 _can_bitrate;
-
-        AP_Int8 _uavcan_enable;
-
-        AP_UAVCAN *_uavcan;
-    };
-#endif
+    // permit other libraries (in particular, GCS_MAVLink) to detect
+    // that we're never going to boot properly:
+    static bool in_sensor_config_error(void) { return _in_sensor_config_error; }
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
     // public method to start a driver
     static bool px4_start_driver(main_fn_t main_function, const char *name, const char *arguments);
-    static void px4_sensor_error(const char *reason);
 
     // valid types for BRD_TYPE: these values need to be in sync with the
     // values from the param description
@@ -58,6 +43,7 @@ public:
         PX4_BOARD_PHMINI   = 5,
         PX4_BOARD_PH2SLIM  = 6,
         PX4_BOARD_AEROFC   = 13,
+        PX4_BOARD_PIXHAWK_PRO = 14,
         PX4_BOARD_AUAV21   = 20,
         PX4_BOARD_OLDDRIVERS = 100,
 #endif
@@ -81,28 +67,8 @@ public:
     }
 #endif
 
-    static int8_t get_can_enable()
-    {
-#if HAL_WITH_UAVCAN
-        return _st_can_enable;
-#else
-        return 0;
-#endif
-    }
-    static int8_t get_can_debug()
-    {
-#if HAL_WITH_UAVCAN
-        return _st_can_debug;
-#else
-        return 0;
-#endif
-    }
 private:
     AP_Int16 vehicleSerialNumber;
-
-#if HAL_WITH_UAVCAN
-    CAN_var_info _var_info_can;
-#endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
     struct {
@@ -120,30 +86,27 @@ private:
 
     static enum px4_board_type px4_configured_board;
 
-#if HAL_WITH_UAVCAN
-    static int8_t _st_can_enable;
-    static int8_t _st_can_debug;
-#endif
-
     void px4_drivers_start(void);
     void px4_setup(void);
     void px4_setup_pwm(void);
-    void px4_setup_safety(void);
+    void px4_init_safety(void);
     void px4_setup_safety_mask(void);
     void px4_setup_uart(void);
     void px4_setup_sbus(void);
-    void px4_setup_canbus(void);
     void px4_setup_drivers(void);
     void px4_setup_peripherals(void);
     void px4_setup_px4io(void);
     void px4_tone_alarm(const char *tone_string);
     bool spi_check_register(const char *devname, uint8_t regnum, uint8_t value, uint8_t read_flag = 0x80);
+    void validate_board_type(void);
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
     void px4_autodetect(void);
 #endif
 
 #endif // HAL_BOARD_PX4 || HAL_BOARD_VRBRAIN
+
+    static bool _in_sensor_config_error;
 
     // target temperarure for IMU in Celsius, or -1 to disable
     AP_Int8 _imu_target_temperature;

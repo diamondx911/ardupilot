@@ -16,10 +16,11 @@
  *   AP_BoardConfig - board specific configuration
  */
 
-
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Common/AP_Common.h>
+#include <GCS_MAVLink/GCS.h>
 #include "AP_BoardConfig.h"
+#include <stdio.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
 #include <sys/types.h>
@@ -28,10 +29,6 @@
 #include <unistd.h>
 #include <drivers/drv_pwm_output.h>
 #include <drivers/drv_sbus.h>
-#endif
-
-#if HAL_WITH_UAVCAN
-#include <AP_UAVCAN/AP_UAVCAN.h>
 #endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4
@@ -129,12 +126,6 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("SERIAL_NUM", 5, AP_BoardConfig, vehicleSerialNumber, 0),
 
-#if HAL_WITH_UAVCAN
-    // @Group: CAN_
-    // @Path: ../AP_BoardConfig/canbus.cpp
-    AP_SUBGROUPINFO(_var_info_can, "CAN_", 6, AP_BoardConfig, AP_BoardConfig::CAN_var_info),
-#endif
-
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
     // @Param: SAFETY_MASK
     // @DisplayName: Channels to which ignore the safety switch state
@@ -151,7 +142,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @DisplayName: Target IMU temperature
     // @Description: This sets the target IMU temperature for boards with controllable IMU heating units. A value of -1 disables heating.
     // @Range: -1 80
-    // @Units: degreesC
+    // @Units: degC
     // @User: Advanced
     AP_GROUPINFO("IMU_TARGTEMP", 8, AP_BoardConfig, _imu_target_temperature, HAL_IMU_TEMP_DEFAULT),
 #endif
@@ -168,7 +159,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
 #if HAL_PX4_HAVE_PX4IO
-    // @Param: BRD_IO_ENABLE
+    // @Param: IO_ENABLE
     // @DisplayName: Enable IO co-processor
     // @Description: This allows for the IO co-processor on FMUv1 and FMUv2 to be disabled
     // @Values: 0:Disabled,1:Enabled
@@ -178,23 +169,15 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 #endif
 #endif
 
+    // ID number 11 reserved for AP_Radio (pending PR)
+    
     AP_GROUPEND
 };
-
-#if HAL_WITH_UAVCAN
-int8_t AP_BoardConfig::_st_can_enable;
-int8_t AP_BoardConfig::_st_can_debug;
-#endif
 
 void AP_BoardConfig::init()
 {
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
     px4_setup();
-#endif
-
-#if HAL_WITH_UAVCAN
-    _st_can_enable = (int8_t) _var_info_can._can_enable;
-    _st_can_debug = (int8_t) _var_info_can._can_debug;
 #endif
 
 #if HAL_HAVE_IMU_HEATER
@@ -212,4 +195,32 @@ void AP_BoardConfig::set_default_safety_ignore_mask(uint16_t mask)
     px4.ignore_safety_channels.set_default(mask);
     px4_setup_safety_mask();
 #endif
+}
+
+void AP_BoardConfig::init_safety()
+{
+#if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
+    px4_init_safety();
+#endif
+}
+
+/*
+  notify user of a fatal startup error related to available sensors. 
+*/
+bool AP_BoardConfig::_in_sensor_config_error;
+
+void AP_BoardConfig::sensor_config_error(const char *reason)
+{
+    _in_sensor_config_error = true;
+    /*
+      to give the user the opportunity to connect to USB we keep
+      repeating the error.  The mavlink delay callback is initialised
+      before this, so the user can change parameters (and in
+      particular BRD_TYPE if needed)
+    */
+    while (true) {
+        printf("Sensor failure: %s\n", reason);
+        gcs().send_text(MAV_SEVERITY_ERROR, "Check BRD_TYPE: %s", reason);
+        hal.scheduler->delay(3000);
+    }
 }

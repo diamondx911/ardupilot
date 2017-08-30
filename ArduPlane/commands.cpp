@@ -51,7 +51,7 @@ void Plane::set_next_WP(const struct Location &loc)
     // location as the previous waypoint, to prevent immediately
     // considering the waypoint complete
     if (location_passed_point(current_loc, prev_WP_loc, next_WP_loc)) {
-        gcs_send_text(MAV_SEVERITY_NOTICE, "Resetting previous waypoint");
+        gcs().send_text(MAV_SEVERITY_NOTICE, "Resetting previous waypoint");
         prev_WP_loc = current_loc;
     }
 
@@ -104,12 +104,12 @@ void Plane::set_guided_WP(void)
 // -------------------------------
 void Plane::init_home()
 {
-    gcs_send_text(MAV_SEVERITY_INFO, "Init HOME");
+    gcs().send_text(MAV_SEVERITY_INFO, "Init HOME");
 
     ahrs.set_home(gps.location());
     home_is_set = HOME_SET_NOT_LOCKED;
     Log_Write_Home_And_Origin();
-    GCS_MAVLINK::send_home_all(gps.location());
+    gcs().send_home(gps.location());
 
     // Save Home to EEPROM
     mission.write_home_to_storage();
@@ -126,7 +126,9 @@ void Plane::init_home()
 */
 void Plane::update_home()
 {
-    if (fabsf(barometer.get_altitude()) > 2) {
+    if ((g2.home_reset_threshold == -1) ||
+        ((g2.home_reset_threshold > 0) &&
+         (fabsf(barometer.get_altitude()) > g2.home_reset_threshold))) {
         // don't auto-update if we have changed barometer altitude
         // significantly. This allows us to cope with slow baro drift
         // but not re-do home and the baro if we have changed height
@@ -138,7 +140,7 @@ void Plane::update_home()
         if(ahrs.get_position(loc)) {
             ahrs.set_home(loc);
             Log_Write_Home_And_Origin();
-            GCS_MAVLINK::send_home_all(loc);
+            gcs().send_home(loc);
         }
     }
     barometer.update_calibration();

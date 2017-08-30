@@ -6,8 +6,6 @@
 #include "AP_BattMonitor_SMBus_Solo.h"
 #include <utility>
 
-#define BATTMONITOR_SMBUS_SOLO_REMAINING_CAPACITY   0x0f    // predicted remaining battery capacity in milliamps
-#define BATTMONITOR_SMBUS_SOLO_FULL_CHARGE_CAPACITY 0x10    // full capacity register
 #define BATTMONITOR_SMBUS_SOLO_MANUFACTURE_DATA     0x23    /// manufacturer data
 #define BATTMONITOR_SMBUS_SOLO_CELL_VOLTAGE         0x28    // cell voltage register
 #define BATTMONITOR_SMBUS_SOLO_CURRENT              0x2a    // current register
@@ -29,24 +27,17 @@
  */
 
 // Constructor
-AP_BattMonitor_SMBus_Solo::AP_BattMonitor_SMBus_Solo(AP_BattMonitor &mon, uint8_t instance,
+AP_BattMonitor_SMBus_Solo::AP_BattMonitor_SMBus_Solo(AP_BattMonitor &mon,
                                                    AP_BattMonitor::BattMonitor_State &mon_state,
                                                    AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
-    : AP_BattMonitor_SMBus(mon, instance, mon_state, std::move(dev))
+    : AP_BattMonitor_SMBus(mon, mon_state, std::move(dev))
 {
     _pec_supported = true;
     _dev->register_periodic_callback(100000, FUNCTOR_BIND_MEMBER(&AP_BattMonitor_SMBus_Solo::timer, void));
 }
 
-/// Read the battery voltage and current.  Should be called at 10hz
-void AP_BattMonitor_SMBus_Solo::read()
-{
-    // nothing to do - all done in timer()
-}
-
 void AP_BattMonitor_SMBus_Solo::timer()
 {
-    uint16_t data;
     uint8_t buff[8];
     uint32_t tnow = AP_HAL::micros();
 
@@ -59,6 +50,8 @@ void AP_BattMonitor_SMBus_Solo::timer()
             _state.cell_voltages.cells[i] = cell;
             pack_voltage_mv += (float)cell;
         }
+        _has_cell_voltages = true;
+
         // accumulate the pack voltage out of the total of the cells
         // because the Solo's I2C bus is so noisy, it's worth not spending the
         // time and bus bandwidth to request the pack voltage as a seperate
@@ -81,21 +74,8 @@ void AP_BattMonitor_SMBus_Solo::timer()
         _state.last_time_micros = tnow;
     }
 
-    // read battery design capacity
-    if (get_capacity() == 0) {
-        if (read_word(BATTMONITOR_SMBUS_SOLO_FULL_CHARGE_CAPACITY, data)) {
-            if (data > 0) {
-                set_capacity(data);
-            }
-        }
-    }
-
-    // read remaining capacity
-    if (get_capacity() > 0) {
-        if (read_word(BATTMONITOR_SMBUS_SOLO_REMAINING_CAPACITY, data)) {
-            _state.current_total_mah = MAX(0, get_capacity() - data);
-        }
-    }
+    read_full_charge_capacity();
+    read_remaining_capacity();
 
     // read the button press indicator
     if (read_block(BATTMONITOR_SMBUS_SOLO_MANUFACTURE_DATA, buff, 6, false) == 6) {
@@ -118,6 +98,8 @@ void AP_BattMonitor_SMBus_Solo::timer()
     }
 
     read_temp();
+
+    read_serial_number();
 }
 
 // read_block - returns number of characters read if successful, zero if unsuccessful

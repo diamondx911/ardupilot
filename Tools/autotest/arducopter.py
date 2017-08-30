@@ -17,6 +17,9 @@ from pymavlink import mavutil, mavwp
 
 from common import *
 from pysim import util
+from pysim import vehicleinfo
+
+vinfo = vehicleinfo.VehicleInfo()
 
 # get location of scripts
 testdir = os.path.dirname(os.path.realpath(__file__))
@@ -26,7 +29,6 @@ AVCHOME = mavutil.location(40.072842, -105.230575, 1586, 0)
 
 homeloc = None
 num_wp = 0
-speedup_default = 10
 
 
 def wait_ready_to_arm(mavproxy):
@@ -278,13 +280,12 @@ def fly_throttle_failsafe(mavproxy, mav, side=60, timeout=180):
     mavproxy.send('switch 6\n')
     wait_mode(mav, 'STABILIZE')
     hover(mavproxy, mav)
-    failed = False
 
     # fly east 60 meters
     print("# Going forward %u meters" % side)
     mavproxy.send('rc 2 1350\n')
     if not wait_distance(mav, side, 5, 60):
-        failed = True
+        return False
     mavproxy.send('rc 2 1500\n')
 
     # pull throttle low
@@ -304,9 +305,14 @@ def fly_throttle_failsafe(mavproxy, mav, side=60, timeout=180):
             # switch back to stabilize
             mavproxy.send('switch 2\n')  # land mode
             wait_mode(mav, 'LAND')
+            print("Waiting for disarm")
+            mav.motors_disarmed_wait()
+            print("Reached failsafe home OK")
             mavproxy.send('switch 6\n')  # stabilize mode
             wait_mode(mav, 'STABILIZE')
-            print("Reached failsafe home OK")
+            if not arm_motors(mavproxy, mav):
+                print("Failed to re-arm")
+                return False
             return True
     print("Failed to land on failsafe RTL - timed out after %u seconds" % timeout)
     # reduce throttle
@@ -452,9 +458,17 @@ def fly_fence_test(mavproxy, mav, timeout=180):
             # switch mode to stabilize
             mavproxy.send('switch 2\n')  # land mode
             wait_mode(mav, 'LAND')
+            print("Waiting for disarm")
+            mav.motors_disarmed_wait()
+            print("Reached home OK")
             mavproxy.send('switch 6\n')  # stabilize mode
             wait_mode(mav, 'STABILIZE')
-            print("Reached home OK")
+            mavproxy.send('arm uncheck all\n') # remove if we ever clear battery failsafe flag on disarm
+            if not arm_motors(mavproxy, mav):
+                print("Failed to re-arm")
+                mavproxy.send('arm check all\n') # remove if we ever clear battery failsafe flag on disarm
+                return False
+            mavproxy.send('arm check all\n') # remove if we ever clear battery failsafe flag on disarm
             return True
 
     # disable fence, enable avoidance
@@ -957,7 +971,7 @@ def setup_rc(mavproxy):
     mavproxy.send('rc 3 1000\n')
 
 
-def fly_ArduCopter(binary, viewerip=None, use_map=False, valgrind=False, gdb=False, frame='+', params_file=None):
+def fly_ArduCopter(binary, viewerip=None, use_map=False, valgrind=False, gdb=False, frame=None, params=None, gdbserver=False, speedup=10):
     """Fly ArduCopter in SITL.
 
     you can pass viewerip as an IP address to optionally send fg and
@@ -965,16 +979,22 @@ def fly_ArduCopter(binary, viewerip=None, use_map=False, valgrind=False, gdb=Fal
     """
     global homeloc
 
+    if frame is None:
+        frame = '+'
+
     home = "%f,%f,%u,%u" % (HOME.lat, HOME.lng, HOME.alt, HOME.heading)
-    sitl = util.start_SITL(binary, wipe=True, model=frame, home=home, speedup=speedup_default)
+    sitl = util.start_SITL(binary, wipe=True, model=frame, home=home, speedup=speedup)
     mavproxy = util.start_MAVProxy_SITL('ArduCopter', options='--sitl=127.0.0.1:5501 --out=127.0.0.1:19550 --quadcopter')
     mavproxy.expect('Received [0-9]+ parameters')
 
     # setup test parameters
-    if params_file is None:
-        params_file = "{testdir}/default_params/copter.parm"
-    mavproxy.send("param load %s\n" % params_file.format(testdir=testdir))
-    mavproxy.expect('Loaded [0-9]+ parameters')
+    if params is None:
+        params = vinfo.options["ArduCopter"]["frames"][frame]["default_params_filename"]
+    if not isinstance(params, list):
+        params = [params]
+    for x in params:
+        mavproxy.send("param load %s\n" % os.path.join(testdir, x))
+        mavproxy.expect('Loaded [0-9]+ parameters')
     mavproxy.send("param set LOG_REPLAY 1\n")
     mavproxy.send("param set LOG_DISARMED 1\n")
     time.sleep(3)
@@ -983,7 +1003,7 @@ def fly_ArduCopter(binary, viewerip=None, use_map=False, valgrind=False, gdb=Fal
     util.pexpect_close(mavproxy)
     util.pexpect_close(sitl)
 
-    sitl = util.start_SITL(binary, model=frame, home=home, speedup=speedup_default, valgrind=valgrind, gdb=gdb)
+    sitl = util.start_SITL(binary, model=frame, home=home, speedup=speedup, valgrind=valgrind, gdb=gdb, gdbserver=gdbserver)
     options = '--sitl=127.0.0.1:5501 --out=127.0.0.1:19550 --quadcopter --streamrate=5'
     if viewerip:
         options += ' --out=%s:14550' % viewerip
@@ -1308,18 +1328,26 @@ def fly_ArduCopter(binary, viewerip=None, use_map=False, valgrind=False, gdb=Fal
     return True
 
 
-def fly_CopterAVC(binary, viewerip=None, use_map=False, valgrind=False, gdb=False):
+def fly_CopterAVC(binary, viewerip=None, use_map=False, valgrind=False, gdb=False, frame=None, params=None, gdbserver=False, speedup=10):
     """Fly ArduCopter in SITL for AVC2013 mission."""
     global homeloc
 
+    if frame is None:
+        frame = 'heli'
+
     home = "%f,%f,%u,%u" % (AVCHOME.lat, AVCHOME.lng, AVCHOME.alt, AVCHOME.heading)
-    sitl = util.start_SITL(binary, wipe=True, model='heli', home=home, speedup=speedup_default)
+    sitl = util.start_SITL(binary, wipe=True, model=frame, home=home, speedup=speedup)
     mavproxy = util.start_MAVProxy_SITL('ArduCopter', options='--sitl=127.0.0.1:5501 --out=127.0.0.1:19550')
     mavproxy.expect('Received [0-9]+ parameters')
 
     # setup test parameters
-    mavproxy.send("param load %s/default_params/copter-heli.parm\n" % testdir)
-    mavproxy.expect('Loaded [0-9]+ parameters')
+    if params is None:
+        params = vinfo.options["ArduCopter"]["frames"][frame]["default_params_filename"]
+    if not isinstance(params, list):
+        params = [params]
+    for x in params:
+        mavproxy.send("param load %s\n" % os.path.join(testdir, x))
+        mavproxy.expect('Loaded [0-9]+ parameters')
     mavproxy.send("param set LOG_REPLAY 1\n")
     mavproxy.send("param set LOG_DISARMED 1\n")
     time.sleep(3)
@@ -1328,7 +1356,7 @@ def fly_CopterAVC(binary, viewerip=None, use_map=False, valgrind=False, gdb=Fals
     util.pexpect_close(mavproxy)
     util.pexpect_close(sitl)
 
-    sitl = util.start_SITL(binary, model='heli', home=home, speedup=speedup_default, valgrind=valgrind, gdb=gdb)
+    sitl = util.start_SITL(binary, model='heli', home=home, speedup=speedup, valgrind=valgrind, gdb=gdb, gdbserver=gdbserver)
     options = '--sitl=127.0.0.1:5501 --out=127.0.0.1:19550 --streamrate=5'
     if viewerip:
         options += ' --out=%s:14550' % viewerip

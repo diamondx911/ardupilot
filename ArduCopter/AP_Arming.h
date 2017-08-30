@@ -17,12 +17,12 @@ public:
 
     void update(void);
     bool all_checks_passing(bool arming_from_gcs);
-    void pre_arm_rc_checks(bool display_failure);
+
+    bool rc_calibration_checks(bool display_failure);
 
 protected:
 
     bool pre_arm_checks(bool display_failure) override;
-    bool pre_arm_gps_checks(bool display_failure);
     bool pre_arm_ekf_attitude_check();
     bool pre_arm_terrain_check(bool display_failure);
     bool pre_arm_proximity_check(bool display_failure);
@@ -40,16 +40,12 @@ protected:
     bool motor_checks(bool display_failure);
     bool pilot_throttle_checks(bool display_failure);
     bool barometer_checks(bool display_failure);
-    bool rc_calibration_checks(bool display_failure);
 
     void set_pre_arm_check(bool b);
-    void set_pre_arm_rc_check(bool b);
 
     enum HomeState home_status() const override;
 
 private:
-
-    void gcs_send_text(MAV_SEVERITY severity, const char *str);
 
     const AP_InertialNav_NavEKF &_inav;
     const AP_InertialSensor &_ins;

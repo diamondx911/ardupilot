@@ -60,6 +60,8 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_ICEngine',
     'AP_Frsky_Telem',
     'AP_FlashStorage',
+    'AP_Relay',
+    'AP_ServoRelayEvents',
 ]
 
 def get_legacy_defines(sketch_name):
@@ -91,7 +93,15 @@ def ap_get_all_libraries(bld):
 
 @conf
 def ap_common_vehicle_libraries(bld):
-    return COMMON_VEHICLE_DEPENDENT_LIBRARIES
+    libraries = COMMON_VEHICLE_DEPENDENT_LIBRARIES
+
+    if bld.env.DEST_BINFMT == 'pe':
+        libraries += [
+            'AP_Proximity',
+            'AC_Fence',
+        ]
+
+    return libraries
 
 _grouped_programs = {}
 

@@ -126,7 +126,10 @@ Memory_table::Memory_table(uint32_t page_count, int version)
     // Get list of available cache coherent physical addresses
     for (i = 0; i < _page_count; i++) {
         _virt_pages[i] = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE | MAP_LOCKED, -1, 0);
-        ::read(file, &pageInfo, 8);
+        if (::read(file, &pageInfo, 8) < 8) {
+            fprintf(stderr, "Failed to read pagemap\n");
+            exit(-1);
+        }
         _phys_pages[i] = (void *)((uintptr_t)(pageInfo * PAGE_SIZE) | bus);
     }
 
@@ -374,12 +377,23 @@ void RCInput_RPI::init_DMA()
 // We must stop DMA when the process is killed
 void RCInput_RPI::set_sigaction()
 {
+    struct sigaction sa, sa_old;
+
+    memset(&sa_old, 0, sizeof(sa));
+    memset(&sa, 0, sizeof(sa));
+
+    /* Ignore signals */
+    sa.sa_handler = SIG_IGN;
+    sigaction(SIGWINCH, &sa, nullptr);
+    sigaction(SIGTTOU, &sa, nullptr);
+    sigaction(SIGTTIN, &sa, nullptr);
+
+    /*
+     * Catch all other signals to ensure DMA is disabled - some of them may
+     * already be handled elsewhere in cases we consider normal termination.
+     * In those cases the teardown() method must be called.
+     */
     for (int i = 0; i < NSIG; i++) {
-        // catch all signals to ensure DMA is disabled - some of them may
-        // already be handled elsewhere in cases we consider normal
-        // termination. In those cases the teardown() method must be called.
-        struct sigaction sa, sa_old;
-        memset(&sa, 0, sizeof(sa));
         sigaction(i, nullptr, &sa_old);
 
         if (sa_old.sa_handler == nullptr) {

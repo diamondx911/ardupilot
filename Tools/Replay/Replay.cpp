@@ -14,7 +14,7 @@
  */
 
 #include <AP_Param/AP_Param.h>
-#include <GCS_MAVLink/GCS.h>
+#include <GCS_MAVLink/GCS_Dummy.h>
 #include "Parameters.h"
 #include "VehicleType.h"
 #include "MsgHandler.h"
@@ -116,7 +116,6 @@ void ReplayVehicle::setup(void)
     // we pass a minimal log structure, as we will be outputting the
     // log structures we need manually, to prevent FMT duplicates
     dataflash.Init(min_log_structure, ARRAY_SIZE(min_log_structure));
-    dataflash.StartNewLog();
 
     ahrs.set_compass(&compass);
     ahrs.set_fly_forward(true);
@@ -614,7 +613,7 @@ void Replay::set_signal_handlers(void)
 void Replay::write_ekf_logs(void)
 {
     if (!LogReader::in_list("EKF", nottypes)) {
-        _vehicle.dataflash.Log_Write_EKF(_vehicle.ahrs,false);
+        _vehicle.dataflash.Log_Write_EKF(_vehicle.ahrs);
     }
     if (!LogReader::in_list("AHRS2", nottypes)) {
         _vehicle.dataflash.Log_Write_AHRS2(_vehicle.ahrs);
@@ -928,12 +927,13 @@ bool Replay::check_user_param(const char *name)
     return false;
 }
 
-class GCS_Replay : public GCS
-{
-    void send_statustext(MAV_SEVERITY severity, uint8_t dest_bitmask, const char *text) override {
-        ::fprintf(stderr, "GCS: %s\n", text);
-    }
+const struct AP_Param::GroupInfo        GCS_MAVLINK::var_info[] = {
+    AP_GROUPEND
 };
-GCS_Replay _gcs;
+GCS_Dummy _gcs;
+
+// dummy methods to avoid linking with these libraries
+void AP_Camera::send_feedback(mavlink_channel_t) {}
+bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate) { return false; }
 
 AP_HAL_MAIN_CALLBACKS(&replay);

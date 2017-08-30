@@ -82,6 +82,7 @@
 
 #include <AP_Arming/AP_Arming.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
+#include <AP_BoardConfig/AP_BoardConfig_CAN.h>
 #include <AP_Frsky_Telem/AP_Frsky_Telem.h>
 #include <AP_ServoRelayEvents/AP_ServoRelayEvents.h>
 
@@ -157,7 +158,6 @@ public:
 private:
     // key aircraft parameters passed to multiple libraries
     AP_Vehicle::FixedWing aparm;
-    AP_HAL::BetterStream* cliSerial;
 
     // Global parameters are all contained within the 'g' and 'g2' classes.
     Parameters g;
@@ -172,6 +172,11 @@ private:
     // board specific config
     AP_BoardConfig BoardConfig;
 
+    // board specific config for CAN bus
+#if HAL_WITH_UAVCAN
+    AP_BoardConfig_CAN BoardConfig_CAN;
+#endif
+
     // primary input channels
     RC_Channel *channel_roll;
     RC_Channel *channel_pitch;
@@ -182,9 +187,6 @@ private:
     AP_Notify notify;
 
     DataFlash_Class DataFlash;
-
-    // has a log download started?
-    bool in_log_download;
 
     // scaled roll limit based on pitch
     int32_t roll_limit_cd;
@@ -270,7 +272,7 @@ private:
 
     // Camera
 #if CAMERA == ENABLED
-    AP_Camera camera {&relay};
+    AP_Camera camera{&relay, MASK_LOG_CAMERA, current_loc, gps, ahrs};
 #endif
 
 #if OPTFLOW == ENABLED
@@ -283,9 +285,6 @@ private:
     
     // RSSI 
     AP_RSSI rssi;      
-
-    // remember if USB is connected, so we can adjust baud rate
-    bool usb_connected;
 
     // This is the state of the flight control system
     // There are multiple states defined such as MANUAL, FBW-A, AUTO
@@ -715,6 +714,12 @@ private:
         // lookahead value for height error reporting
         float lookahead;
 #endif
+
+        // last input for FBWB/CRUISE height control
+        float last_elevator_input;
+
+        // last time we checked for pilot control of height
+        uint32_t last_elev_check_us;
     } target_altitude {};
 
     float relative_altitude = 0.0f;
@@ -729,7 +734,7 @@ private:
         // Timer used to accrue data and trigger recording of the performanc monitoring log message
         uint32_t start_ms;
 
-        // The maximum and minimum main loop execution time recorded in the current performance monitoring interval
+        // The maximum and minimum main loop execution time, in microseconds, recorded in the current performance monitoring interval
         uint32_t G_Dt_max;
         uint32_t G_Dt_min;
 
@@ -807,25 +812,17 @@ private:
     void send_servo_out(mavlink_channel_t chan);
     void send_vfr_hud(mavlink_channel_t chan);
     void send_simstate(mavlink_channel_t chan);
-    void send_hwstatus(mavlink_channel_t chan);
     void send_wind(mavlink_channel_t chan);
     void send_pid_tuning(mavlink_channel_t chan);
     void send_rpm(mavlink_channel_t chan);
-    void send_rangefinder(mavlink_channel_t chan);
-    void send_current_waypoint(mavlink_channel_t chan);
 
     void send_aoa_ssa(mavlink_channel_t chan);
 
-    bool telemetry_delayed(mavlink_channel_t chan);
-    void gcs_send_message(enum ap_message id);
-    void gcs_send_mission_item_reached_message(uint16_t mission_index);
     void gcs_data_stream_send(void);
     void gcs_update(void);
-    void gcs_send_text(MAV_SEVERITY severity, const char *str);
     void gcs_send_airspeed_calibration(const Vector3f &vg);
     void gcs_retry_deferred(void);
 
-    void do_erase_logs(void);
     void Log_Write_Fast(void);
     void Log_Write_Attitude(void);
     void Log_Write_Performance();
@@ -845,10 +842,10 @@ private:
     void Log_Write_Home_And_Origin();
     void Log_Write_Vehicle_Startup_Messages();
     void Log_Write_AOA_SSA();
-    void Log_Read(uint16_t log_num, int16_t start_page, int16_t end_page);
-    void start_logging();
+    void Log_Write_AETR();
 
     void load_parameters(void);
+    void convert_mixers(void);
     void adjust_altitude_target();
     void setup_glide_slope(void);
     int32_t get_RTL_altitude();
@@ -891,9 +888,7 @@ private:
     bool verify_vtol_takeoff(const AP_Mission::Mission_Command &cmd);
     bool verify_vtol_land(const AP_Mission::Mission_Command &cmd);
     void do_loiter_at_location();
-    void do_take_picture();
     bool verify_loiter_heading(bool init);
-    void log_picture();
     void exit_mission_callback();
     void mavlink_delay(uint32_t ms);
     void read_control_switch();
@@ -938,6 +933,10 @@ private:
     bool reached_loiter_target(void);
     bool print_buffer(char *&buf, uint16_t &buf_size, const char *fmt, ...);
     uint16_t create_mixer(char *buf, uint16_t buf_size, const char *filename);
+    bool mix_one_channel(char *&buf, uint16_t &buf_size, uint8_t out_chan, uint8_t in_chan);
+    bool mix_two_channels(char *&buf, uint16_t &buf_size, uint8_t out_chan, uint8_t in_chan1, uint8_t in_chan2, bool left_channel);
+    bool mix_passthrough(char *&buf, uint16_t &buf_size, uint8_t out_chan, uint8_t in_chan);
+    bool mix_trim_channel(char *&buf, uint16_t &buf_size, uint8_t out_chan);
     bool setup_failsafe_mixing(void);
     void set_control_channels(void);
     void init_rc_in();
@@ -960,30 +959,16 @@ private:
     void button_update(void);
     void stats_update();
     void ice_update(void);
-    void report_radio();
-    void report_ins();
-    void report_compass();
-    void print_radio_values();
-    void print_done();
-    void print_blanks(int16_t num);
-    void print_divider(void);
-    void zero_eeprom(void);
-    void print_enabled(bool b);
-    void print_accel_offsets_and_scaling(void);
-    void print_gyro_offsets(void);
     void init_ardupilot();
     void startup_ground(void);
     enum FlightMode get_previous_mode();
     void set_mode(enum FlightMode mode, mode_reason_t reason);
-    bool mavlink_set_mode(uint8_t mode);
     void exit_mode(enum FlightMode mode);
     void check_long_failsafe();
     void check_short_failsafe();
     void startup_INS_ground(void);
     void update_notify();
     void resetPerfData(void);
-    void check_usb_mux(void);
-    void print_comma(void);
     bool should_log(uint32_t mask);
     int8_t throttle_percentage(void);
     void change_arm_state(void);
@@ -995,7 +980,6 @@ private:
     int8_t takeoff_tail_hold(void);
     int16_t get_takeoff_pitch_min_cd(void);
     void complete_auto_takeoff(void);
-    void print_hit_enter();
     void ahrs_update();
     void update_speed_height(void);
     void update_GPS_50Hz(void);
@@ -1025,6 +1009,7 @@ private:
     void set_servos_controlled(void);
     void set_servos_old_elevons(void);
     void set_servos_flaps(void);
+    void dspoiler_update(void);
     void servo_output_mixers(void);
     void servos_output(void);
     void servos_auto_trim(void);
@@ -1035,7 +1020,6 @@ private:
     void update_is_flying_5Hz(void);
     void crash_detection_update(void);
     bool in_preLaunch_flight_stage(void);
-    void gcs_send_text_fmt(MAV_SEVERITY severity, const char *fmt, ...);
     void handle_auto_mode(void);
     void calc_throttle();
     void calc_nav_roll();
@@ -1087,9 +1071,7 @@ private:
     void do_digicam_control(const AP_Mission::Mission_Command& cmd);
     bool start_command_callback(const AP_Mission::Mission_Command &cmd);
     bool verify_command_callback(const AP_Mission::Mission_Command& cmd);
-    void print_flight_mode(AP_HAL::BetterStream *port, uint8_t mode);
     void notify_flight_mode(enum FlightMode mode);
-    void run_cli(AP_HAL::UARTDriver *port);
     void log_init();
     void init_capabilities(void);
     void dataflash_periodic(void);
@@ -1110,35 +1092,7 @@ private:
 public:
     void mavlink_delay_cb();
     void failsafe_check(void);
-    bool print_log_menu(void);
-    int8_t dump_log(uint8_t argc, const Menu::arg *argv);
-    int8_t erase_logs(uint8_t argc, const Menu::arg *argv);
-    int8_t select_logs(uint8_t argc, const Menu::arg *argv);
-    int8_t process_logs(uint8_t argc, const Menu::arg *argv);
-    int8_t setup_mode(uint8_t argc, const Menu::arg *argv);
-    int8_t setup_factory(uint8_t argc, const Menu::arg *argv);
-    int8_t setup_erase(uint8_t argc, const Menu::arg *argv);
-    int8_t test_mode(uint8_t argc, const Menu::arg *argv);
-    int8_t reboot_board(uint8_t argc, const Menu::arg *argv);
-    int8_t main_menu_help(uint8_t argc, const Menu::arg *argv);
-    int8_t test_radio_pwm(uint8_t argc, const Menu::arg *argv);
-    int8_t test_radio(uint8_t argc, const Menu::arg *argv);
-    int8_t test_failsafe(uint8_t argc, const Menu::arg *argv);
-    int8_t test_relay(uint8_t argc, const Menu::arg *argv);
-    int8_t test_wp(uint8_t argc, const Menu::arg *argv);
-    void test_wp_print(const AP_Mission::Mission_Command& cmd);
-    int8_t test_xbee(uint8_t argc, const Menu::arg *argv);
-    int8_t test_modeswitch(uint8_t argc, const Menu::arg *argv);
-    int8_t test_logging(uint8_t argc, const Menu::arg *argv);
-    int8_t test_gps(uint8_t argc, const Menu::arg *argv);
-    int8_t test_ins(uint8_t argc, const Menu::arg *argv);
-    int8_t test_mag(uint8_t argc, const Menu::arg *argv);
-    int8_t test_airspeed(uint8_t argc, const Menu::arg *argv);
-    int8_t test_pressure(uint8_t argc, const Menu::arg *argv);
-    int8_t test_shell(uint8_t argc, const Menu::arg *argv);
 };
-
-#define MENU_FUNC(func) FUNCTOR_BIND(&plane, &Plane::func, int8_t, uint8_t, const Menu::arg *)
 
 extern const AP_HAL::HAL& hal;
 extern Plane plane;

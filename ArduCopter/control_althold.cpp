@@ -8,7 +8,8 @@ double Kp=0.15, Ki=0.1, Kd=0.004, Setpoint;
 #define TEST_I_front 0.05f   // default was 0.05
 #define TEST_D_front 3.0f    // default was 4.5
 
-
+long previousMillis = 0;
+long interval = 70;
 
 #define TEST_IMAX 1
 #define TEST_FILTER 5.0f
@@ -50,7 +51,7 @@ bool Copter::althold_init(bool ignore_checks)
 void Copter::althold_run()
 {
     AltHoldModeState althold_state;
-
+    long currentMillis = AP_HAL::millis();
    RC_Channel *rc12 = RC_Channels::rc_channel(CH_12);
     	RC_Channel *rc14 = RC_Channels::rc_channel(CH_14);
     	int16_t error_front;
@@ -178,14 +179,14 @@ void Copter::althold_run()
 
 
 
-        if(radio14_in == 2084){
+        if(radio14_in == 2084 && Input_front_right <= 150.0f){
 
 
 
-        	Setpoint = (radio12_in - 1094) * (800.0f - 200.0f) / (1934 - 1094) + 200.0f;
+     //   	Setpoint = (radio12_in - 1094) * (800.0f - 200.0f) / (1934 - 1094) + 200.0f;
 
 
-        			  error_front =  Input_front - Setpoint;
+        			  error_front =  Input_front_right - 150.0f;
         	           pid.set_input_filter_all(error_front);
         	           control_P_front = pid.get_p();
         	           control_I_front = pid.get_i();
@@ -195,36 +196,44 @@ void Copter::althold_run()
 
 
         	float output_pid_front = -(control_P_front + control_I_front + control_D_front);
-        	output_pid_front = constrain_float(output_pid_front,-800.0f,800.0f);
+        	output_pid_front = constrain_float(output_pid_front,-600.0f,600.0f);
 
         			attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, output_pid_front, target_yaw_rate, get_smoothing_gain());
         			//attitude_control->set_throttle_out(pilot_throttle_scaled, true, g.throttle_filt);
         			// adjust climb rate using rangefinder
-        			        	        if (rangefinder_alt_ok()) {
-        			        	            // if rangefinder is ok, use surface tracking
-        			        	            target_climb_rate = get_surface_tracking_climb_rate(target_climb_rate, pos_control->get_alt_target(), G_Dt);
-        			        	        }
+
 
         			        	        // get avoidance adjusted climb rate
         			        	        target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);
 
-        			        	        // call position controller
-        			        	        pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
+        			        	        if(Input_front_right <= 200.0f){
+
+        			        	        	pos_control->set_alt_target_from_climb_rate_ff(20.0f, G_Dt, false);
+        			        	        	pos_control->update_z_controller();
+
+        			        	        } else{
+
+        			        	        	pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
         			        	        pos_control->update_z_controller();
+
+        			        	        }
+
+        			        	        // call position controller
+
         			        	  //      pos_control->set_xy_target(200.0f,0.0f);
         			        	   //     pos_control->stick_to_wall(AC_PosControl::XY_MODE_POS_AND_VEL_FF, ekfNavVelGainScaler, Input_front , false);
-
+ 			if(currentMillis - previousMillis > interval){
+        				  previousMillis = currentMillis;
+        				  hal.console->printf("target climb rate: %f \n", Input_front_right);
+        			//	  hal.console->printf("range finder front right: %f \n", Input_front_right);
+        			//	  hal.console->printf("range finder front left: %f \n", Input_front_left);
+        			//	hal.console->printf("xtarget: %f \n", output_pid_front);
+        			//	  hal.console->printf("altitude is: %f \n", Input_front);
+        					}
         			        	        break;
 
 
-        //			if(currentMillis - previousMillis > interval){
-        	//			  previousMillis = currentMillis;
-        		//		//  hal.console->printf("range finder front: %f \n", Input_front);
-        			//	  hal.console->printf("range finder front right: %f \n", Input_front_right);
-        //				  hal.console->printf("range finder front left: %f \n", Input_front_left);
-        	//			hal.console->printf("xtarget: %f \n", output_pid_front);
-        		//		  hal.console->printf("altitude is: %f \n", Input_front);
-        			//		}
+
 
 
 

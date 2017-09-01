@@ -32,7 +32,7 @@
 #include "DiscreteRGBLed.h"
 #include "DiscoLED.h"
 #include <stdio.h>
-
+#include "ElabLED.h"
 
 // table of user settable parameters
 const AP_Param::GroupInfo AP_Notify::var_info[] = {

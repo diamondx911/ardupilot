@@ -1,6 +1,7 @@
 #include <AP_HAL/AP_HAL.h>
 #include "AC_PosControl.h"
 #include <AP_Math/AP_Math.h>
+#include <AP_RangeFinder/RangeFinder_Backend.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -762,7 +763,7 @@ void AC_PosControl::update_vel_controller_xyz(float ekfNavVelGainScaler)
 {
     // capture time since last iteration
     uint32_t now = AP_HAL::millis();
-    float dt = (now - _last_update_xy_ms)*0.001f;
+    float dt = time_since_last_xy_update();
 
     // call xy controller
     if (dt >= get_dt_xy()) {
@@ -915,76 +916,124 @@ void AC_PosControl::pos_to_rate_xy(xy_mode mode, float dt, float ekfNavVelGainSc
 
 void AC_PosControl::pos_to_rate_xy_stick_to_wall(xy_mode mode, float dt, float test, float ekfNavVelGainScaler)
 {
-	Vector3f curr_pos;
+	uint32_t now = AP_HAL::millis();
+	    float inc = (now - _last_update_xy_ms) / 1000.0f,linear_distance;
+	    _last_update_xy_ms = now;
+	    float kP = ekfNavVelGainScaler * _p_pos_xy.kP();
+    Vector3f curr_pos;
 	curr_pos.x = test;
-	curr_pos.x = 0.0f;
-    float linear_distance;      // the distance we swap between linear and sqrt velocity response
-    float kP = ekfNavVelGainScaler * _p_pos_xy.kP(); // scale gains to compensate for noisy optical flow measurement in the EKF
 
-    // avoid divide by zero
-    if (kP <= 0.0f) {
-        _vel_target.x = 0.0f;
-        _vel_target.y = 0.0f;
-    }else{
-        // calculate distance error
-        _pos_error.x = _pos_target.x - curr_pos.x;
-        _pos_error.y = _pos_target.y - curr_pos.y;
+//	AC_PID pid(0.50f, 0.0f, 1.0f, 100, 5.0f, 0.002);
 
-        // constrain target position to within reasonable distance of current location
-        _distance_to_target = norm(_pos_error.x, _pos_error.y);
-        if (_distance_to_target > _leash && _distance_to_target > 0.0f) {
-            _pos_target.x = curr_pos.x + _leash * _pos_error.x/_distance_to_target;
-            _pos_target.y = curr_pos.y + _leash * _pos_error.y/_distance_to_target;
-            // re-calculate distance error
-            _pos_error.x = _pos_target.x - curr_pos.x;
-            _pos_error.y = _pos_target.y - curr_pos.y;
-            _distance_to_target = _leash;
-        }
+    _pos_error.x = 200.0f - curr_pos.x;
+    _pos_error.y = 0.0f;
+    _distance_to_target = norm(_pos_error.x, _pos_error.y);
+    linear_distance = _accel_cms/(2.0f*kP*kP);
 
-        // calculate the distance at which we swap between linear and sqrt velocity response
-        linear_distance = _accel_cms/(2.0f*kP*kP);
-
-        if (_distance_to_target > 2.0f*linear_distance) {
-            // velocity response grows with the square root of the distance
-            float vel_sqrt = safe_sqrt(2.0f*_accel_cms*(_distance_to_target-linear_distance));
-            _vel_target.x = vel_sqrt * _pos_error.x/_distance_to_target;
-            _vel_target.y = vel_sqrt * _pos_error.y/_distance_to_target;
-        }else{
-            // velocity response grows linearly with the distance
-            _vel_target.x = kP * _pos_error.x;
-            _vel_target.y = kP * _pos_error.y;
-        }
-
-        if (mode == XY_MODE_POS_LIMITED_AND_VEL_FF) {
-            // this mode is for loiter - rate-limiting the position correction
-            // allows the pilot to always override the position correction in
-            // the event of a disturbance
-
-            // scale velocity within limit
-            float vel_total = norm(_vel_target.x, _vel_target.y);
-            if (vel_total > POSCONTROL_VEL_XY_MAX_FROM_POS_ERR) {
-                _vel_target.x = POSCONTROL_VEL_XY_MAX_FROM_POS_ERR * _vel_target.x/vel_total;
-                _vel_target.y = POSCONTROL_VEL_XY_MAX_FROM_POS_ERR * _vel_target.y/vel_total;
+    if (_distance_to_target > 2.0f*linear_distance) {
+                // velocity response grows with the square root of the distance
+                float vel_sqrt = safe_sqrt(2.0f*_accel_cms*(_distance_to_target-linear_distance));
+                _vel_target.x = vel_sqrt * _pos_error.x/_distance_to_target;
+                _vel_target.y = vel_sqrt * _pos_error.y/_distance_to_target;
+            }else{
+                // velocity response grows linearly with the distance
+                _vel_target.x = kP * _pos_error.x;
+                _vel_target.y = kP * _pos_error.y;
             }
 
-            // add velocity feed-forward
-            _vel_target.x += _vel_desired.x;
-            _vel_target.y += _vel_desired.y;
-        } else {
-            if (mode == XY_MODE_POS_AND_VEL_FF) {
+    if (mode == XY_MODE_POS_LIMITED_AND_VEL_FF) {
+                // this mode is for loiter - rate-limiting the position correction
+                // allows the pilot to always override the position correction in
+                // the event of a disturbance
+
+                // scale velocity within limit
+                float vel_total = norm(_vel_target.x, _vel_target.y);
+                if (vel_total > POSCONTROL_VEL_XY_MAX_FROM_POS_ERR) {
+                    _vel_target.x = POSCONTROL_VEL_XY_MAX_FROM_POS_ERR * _vel_target.x/vel_total;
+                    _vel_target.y = POSCONTROL_VEL_XY_MAX_FROM_POS_ERR * _vel_target.y/vel_total;
+                }
                 // add velocity feed-forward
-                _vel_target.x += _vel_desired.x;
-                _vel_target.y += _vel_desired.y;
-            }
+                            _vel_target.x += _vel_desired.x;
+                            _vel_target.y += _vel_desired.y;
+                        } else {
+                            if (mode == XY_MODE_POS_AND_VEL_FF) {
+                                // add velocity feed-forward
+                                _vel_target.x += _vel_desired.x;
+                                _vel_target.y += _vel_desired.y;
+                            }
 
-            // scale velocity within speed limit
-            float vel_total = norm(_vel_target.x, _vel_target.y);
-            if (vel_total > _speed_cms) {
-                _vel_target.x = _speed_cms * _vel_target.x/vel_total;
-                _vel_target.y = _speed_cms * _vel_target.y/vel_total;
-            }
-        }
-    }
+                            // scale velocity within speed limit
+                            float vel_total = norm(_vel_target.x, _vel_target.y);
+                            if (vel_total > _speed_cms) {
+                                _vel_target.x = _speed_cms * _vel_target.x/vel_total;
+                                _vel_target.y = _speed_cms * _vel_target.y/vel_total;
+                            }}
+
+ //   pid.set_input_filter_all(_pos_target.x);
+ //   _accel_target.x = pid.get_p();
+ //   _accel_target.x = (_vel_target.x - _vel_last.x)/inc;
+  //  _accel_target.x = constrain_float(_accel_target.x,-100.0f,100.0f);
+
+                           Vector2f vel_xy_p, vel_xy_i;
+
+                               // reset last velocity target to current target
+                               if (_flags.reset_rate_to_accel_xy) {
+                                   _vel_last.x = _vel_target.x;
+                                   _vel_last.y = _vel_target.y;
+                                   _flags.reset_rate_to_accel_xy = false;
+                               }
+
+                               // check if vehicle velocity is being overridden
+                               if (_flags.vehicle_horiz_vel_override) {
+                                   _flags.vehicle_horiz_vel_override = false;
+                               } else {
+                                   _vehicle_horiz_vel.x = (test - _dist_last)/dt;
+                            	 //  _vehicle_horiz_vel.x = _inav.get_velocity().x;
+                                   _vehicle_horiz_vel.y = 0;
+                               }
+
+                               // feed forward desired acceleration calculation
+                               if (dt > 0.0f) {
+                               	if (!_flags.freeze_ff_xy) {
+                               		_accel_feedforward.x = (_vel_target.x - _vel_last.x)/dt;
+                               		_accel_feedforward.y = (_vel_target.y - _vel_last.y)/dt;
+                                   } else {
+                               		// stop the feed forward being calculated during a known discontinuity
+                               		_flags.freeze_ff_xy = false;
+                               	}
+                               } else {
+                               	_accel_feedforward.x = 0.0f;
+                               	_accel_feedforward.y = 0.0f;
+                               }
+
+                               // store this iteration's velocities for the next iteration
+                               _vel_last.x = _vel_target.x;
+                               _vel_last.y = _vel_target.y;
+                               _dist_last = test;
+
+                               // calculate velocity error
+                               _vel_error.x = _vel_target.x - _vehicle_horiz_vel.x;
+                               _vel_error.y = _vel_target.y - _vehicle_horiz_vel.y;
+
+                               // call pi controller
+                               _pi_vel_xy.set_input(_vel_error);
+
+                               // get p
+                               vel_xy_p = _pi_vel_xy.get_p();
+
+                               // update i term if we have not hit the accel or throttle limits OR the i term will reduce
+                                   if (!_limit.accel_xy && !_motors.limit.throttle_upper) {
+                                       vel_xy_i = _pi_vel_xy.get_i();
+                                   } else {
+                                       vel_xy_i = _pi_vel_xy.get_i_shrink();
+                                   }
+
+
+                               // combine feed forward accel with PID output from velocity error and scale PID output to compensate for optical flow measurement induced EKF noise
+                               _accel_target.x = _accel_feedforward.x + (vel_xy_p.x + vel_xy_i.x) * ekfNavVelGainScaler;
+                               _accel_target.y = _accel_feedforward.y + (vel_xy_p.y + vel_xy_i.y) * ekfNavVelGainScaler;
+
+        accel_to_lean_angles(inc, ekfNavVelGainScaler,  true);
 }
 
 /// rate_to_accel_xy - horizontal desired rate to desired acceleration

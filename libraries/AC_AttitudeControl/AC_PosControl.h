@@ -29,7 +29,7 @@
 
 #define POSCONTROL_ACCEL_Z                      250.0f  // default vertical acceleration in cm/s/s.
 
-#define POSCONTROL_LEASH_LENGTH_MIN             100.0f  // minimum leash lengths in cm
+#define POSCONTROL_LEASH_LENGTH_MIN             1.0f  // minimum leash lengths in cm
 
 #define POSCONTROL_DT_50HZ                      0.02f   // time difference in seconds for 50hz update rate
 #define POSCONTROL_DT_400HZ                     0.0025f // time difference in seconds for 400hz update rate
@@ -277,9 +277,9 @@ public:
     /// get desired roll, pitch which should be fed into stabilize controllers
     float get_roll() const { return _roll_target; }
     float get_pitch() const { return _pitch_target; }
-
+    void pos_to_rate_xy_stick_to_wall(xy_mode mode, float dt, float test, float ekfNavVelGainScaler);
     // get_leash_xy - returns horizontal leash length in cm
-    float get_leash_xy() const { return _leash; }
+    float get_leash_xy() const { return _accel_target.x; }
 
     /// get_pos_xy_kP - returns xy position controller's kP gain
     float get_pos_xy_kP() const { return _p_pos_xy.kP(); }
@@ -352,7 +352,7 @@ protected:
     ///         desired velocity (_vel_desired) is combined into final target velocity and
     ///         velocity due to position error is reduce to a maximum of 1m/s
     void pos_to_rate_xy(xy_mode mode, float dt, float ekfNavVelGainScaler);
-    void pos_to_rate_xy_stick_to_wall(xy_mode mode, float dt, float test, float ekfNavVelGainScaler);
+
 
     /// rate_to_accel_xy - horizontal desired rate to desired acceleration
     ///    converts desired velocities in lat/lon directions to accelerations in lat/lon frame
@@ -414,6 +414,7 @@ protected:
     Vector3f    _vel_target;            // velocity target in cm/s calculated by pos_to_rate step
     Vector3f    _vel_error;             // error between desired and actual acceleration in cm/s
     Vector3f    _vel_last;              // previous iterations velocity in cm/s
+    float    _dist_last;              // previous distance  in cm
     Vector3f    _accel_target;          // desired acceleration in cm/s/s  // To-Do: are xy actually required?
     Vector3f    _accel_error;           // desired acceleration in cm/s/s  // To-Do: are xy actually required?
     Vector3f    _accel_feedforward;     // feedforward acceleration in cm/s/s

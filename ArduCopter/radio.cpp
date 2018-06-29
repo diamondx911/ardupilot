@@ -8,8 +8,6 @@ void Copter::default_dead_zones()
 {
     channel_roll->set_default_dead_zone(20);
     channel_pitch->set_default_dead_zone(20);
-    channel_forward->set_default_dead_zone(20);
-    channel_lateral->set_default_dead_zone(20);
 #if FRAME_CONFIG == HELI_FRAME
     channel_throttle->set_default_dead_zone(10);
     channel_yaw->set_default_dead_zone(15);
@@ -25,8 +23,6 @@ void Copter::init_rc_in()
 {
     channel_roll     = RC_Channels::rc_channel(rcmap.roll()-1);
     channel_pitch    = RC_Channels::rc_channel(rcmap.pitch()-1);
-    channel_forward     = RC_Channels::rc_channel(rcmap.forward()-1);
-    channel_lateral     = RC_Channels::rc_channel(rcmap.lateral()-1);
     channel_throttle = RC_Channels::rc_channel(rcmap.throttle()-1);
     channel_yaw      = RC_Channels::rc_channel(rcmap.yaw()-1);
 
@@ -186,5 +182,5 @@ void Copter::set_throttle_zero_flag(int16_t throttle_control)
 // pass pilot's inputs to motors library (used to allow wiggling servos while disarmed on heli, single, coax copters)
 void Copter::radio_passthrough_to_motors()
 {
-    motors->set_radio_passthrough(channel_roll->norm_input(), channel_pitch->norm_input(), channel_forward->norm_input(), channel_lateral->norm_input(), channel_throttle->norm_input(), channel_yaw->norm_input());
+    motors->set_radio_passthrough(channel_roll->norm_input(), channel_pitch->norm_input(), channel_throttle->norm_input(), channel_yaw->norm_input());
 }

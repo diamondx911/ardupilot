@@ -293,7 +293,7 @@ bool Rover::verify_nav_wp(const AP_Mission::Mission_Command& cmd)
             loiter_start_time = millis();
         } else {
             // send simpler message to GCS
-            gcs().send_text(MAV_SEVERITY_INFO, "Reached yo yo waypoint #%u", static_cast<uint32_t>(cmd.index));
+            gcs().send_text(MAV_SEVERITY_INFO, "Reached waypoint #%u", static_cast<uint32_t>(cmd.index));
         }
     }
 

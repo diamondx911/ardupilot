@@ -395,8 +395,6 @@ public:
     /// leg cannot be determined
     int32_t get_next_ground_course_cd(int32_t default_angle);
 
-    Location get_bearing_look_ahead();
-
     /// get_current_do_cmd - returns active "do" command
     const Mission_Command& get_current_do_cmd() const { return _do_cmd; }
 

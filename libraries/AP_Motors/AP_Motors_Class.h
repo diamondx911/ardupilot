@@ -159,7 +159,7 @@ public:
     virtual uint16_t    get_motor_mask() = 0;
 
     // pilot input in the -1 ~ +1 range for roll, pitch and yaw. 0~1 range for throttle
-    void                set_radio_passthrough(float roll_input, float pitch_input, float forward_input, float lateral_input, float throttle_input, float yaw_input);
+    void                set_radio_passthrough(float roll_input, float pitch_input, float throttle_input, float yaw_input);
 
     // set loop rate. Used to support loop rate as a parameter
     void                set_loop_rate(uint16_t loop_rate) { _loop_rate = loop_rate; }
@@ -225,8 +225,6 @@ protected:
     // pass through variables
     float _roll_radio_passthrough = 0.0f;     // roll input from pilot in -1 ~ +1 range.  used for setup and providing servo feedback while landed
     float _pitch_radio_passthrough = 0.0f;    // pitch input from pilot in -1 ~ +1 range.  used for setup and providing servo feedback while landed
-    float _forward_radio_passthrough = 0.0f;    // forward input from pilot in -1 ~ +1 range.  used for setup and providing servo feedback while landed
-    float _lateral_radio_passthrough = 0.0f;    // lateral input from pilot in -1 ~ +1 range.  used for setup and providing servo feedback while landed
     float _throttle_radio_passthrough = 0.0f; // throttle/collective input from pilot in 0 ~ 1 range.  used for setup and providing servo feedback while landed
     float _yaw_radio_passthrough = 0.0f;      // yaw input from pilot in -1 ~ +1 range.  used for setup and providing servo feedback while landed
 

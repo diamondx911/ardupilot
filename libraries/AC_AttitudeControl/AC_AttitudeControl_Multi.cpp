@@ -208,6 +208,38 @@ void AC_AttitudeControl_Multi::set_throttle_out(float throttle_in, bool apply_an
     _motors.set_throttle_avg_max(get_throttle_avg_max(MAX(throttle_in, _throttle_in)));
 }
 
+void AC_AttitudeControl_Multi::set_lateral_out(float lateral_in, bool apply_angle_boost, float filter_cutoff)
+{
+    _lateral_in = lateral_in;
+    update_althold_lean_angle_max(lateral_in);
+    _motors.set_throttle_filter_cutoff(filter_cutoff);
+    if (apply_angle_boost) {
+        // Apply angle boost
+        lateral_in = get_throttle_boosted(lateral_in);
+    }else{
+        // Clear angle_boost for logging purposes
+        _angle_boost = 0.0f;
+    }
+    _motors.set_lateral(lateral_in);
+    _motors.set_throttle_avg_max(get_throttle_avg_max(MAX(lateral_in, _lateral_in)));
+}
+
+void AC_AttitudeControl_Multi::set_forward_out(float forward_in, bool apply_angle_boost, float filter_cutoff)
+{
+    _forward_in = forward_in;
+    update_althold_lean_angle_max(forward_in);
+    _motors.set_throttle_filter_cutoff(filter_cutoff);
+    if (apply_angle_boost) {
+        // Apply angle boost
+        forward_in = get_throttle_boosted(forward_in);
+    }else{
+        // Clear angle_boost for logging purposes
+        _angle_boost = 0.0f;
+    }
+    _motors.set_forward(forward_in);
+    _motors.set_throttle_avg_max(get_throttle_avg_max(MAX(forward_in, _forward_in)));
+}
+
 // returns a throttle including compensation for roll/pitch angle
 // throttle value should be 0 ~ 1
 float AC_AttitudeControl_Multi::get_throttle_boosted(float throttle_in)

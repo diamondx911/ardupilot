@@ -253,6 +253,7 @@ void AP_L1_Control::update_waypoint(const struct Location &prev_WP, const struct
     }
     AB.normalize();
 
+
     // Calculate the NE position of the aircraft relative to WP A
     Vector2f A_air = location_diff(prev_WP, _current_loc);
 

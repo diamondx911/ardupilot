@@ -335,6 +335,61 @@ int32_t AP_Mission::get_next_ground_course_cd(int32_t default_angle)
     return get_bearing_cd(_nav_cmd.content.location, cmd.content.location);
 }
 
+Location AP_Mission::get_bearing_look_ahead()
+{
+
+	Mission_Command cmd;
+	uint16_t cmd_index;
+	Location temp;
+	    // get starting point for search
+	    cmd_index = _nav_cmd.index+1;
+	    if (cmd_index == AP_MISSION_CMD_INDEX_NONE) {
+	        // start from beginning of the mission command list
+	        cmd_index = AP_MISSION_FIRST_REAL_COMMAND;
+	    }else{
+	        // start from one position past the current nav command
+	        cmd_index++;
+	    }
+
+	    // avoid endless loops
+	    uint8_t max_loops = 255;
+
+	    // search until we find next nav command or reach end of command list
+	    while (!_flags.nav_cmd_loaded) {
+	        // get next command
+	        if (!get_next_cmd(cmd_index, cmd, true)) {
+	            break;
+	        }
+
+	        // check if navigation or "do" command
+	        if (is_nav_cmd(cmd)) {
+	            // save separate previous nav command index if it contains lat,long,alt
+	            if (!(cmd.content.location.lat == 0 && cmd.content.location.lng == 0)) {
+	                temp = cmd.content.location;
+	                _flags.nav_cmd_loaded = true;
+	                break;
+	            }
+
+	        }else // protect against endless loops of do-commands
+	                if (max_loops-- == 0) {
+	                    break;
+	                }
+
+	      	        // move onto next command
+	        cmd_index = cmd.index+1;
+
+	            }
+
+
+
+	    // if we have not found a do command then set flag to show there are no do-commands to be run before nav command completes
+	    if (!_flags.do_cmd_loaded) {
+	        _flags.do_cmd_all_done = true;
+	    }
+return temp;
+
+}
+
 // set_current_cmd - jumps to command specified by index
 bool AP_Mission::set_current_cmd(uint16_t index)
 {

@@ -201,6 +201,10 @@ public:
     // Set output throttle
     virtual void set_throttle_out(float throttle_in, bool apply_angle_boost, float filt_cutoff) = 0;
 
+    virtual void set_lateral_out(float lateral_in, bool apply_angle_boost, float filt_cutoff) = 0;
+
+    virtual void set_forward_out(float forward_in, bool apply_angle_boost, float filt_cutoff) = 0;
+
     // Set output throttle and disable stabilization
     void set_throttle_out_unstabilized(float throttle_in, bool reset_attitude_control, float filt_cutoff);
 

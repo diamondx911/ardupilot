@@ -198,6 +198,7 @@ void Mode::calc_lateral_acceleration(const struct Location &origin, const struct
     // positive error = right turn
     rover.nav_controller->set_reverse(reversed);
     rover.nav_controller->update_waypoint(origin, destination);
+    gcs().send_text(MAV_SEVERITY_NOTICE, "what's up dawg !");
     lateral_acceleration = rover.nav_controller->lateral_acceleration();
     if (reversed) {
         _yaw_error_cd = wrap_180_cd(rover.nav_controller->target_bearing_cd() - ahrs.yaw_sensor + 18000);

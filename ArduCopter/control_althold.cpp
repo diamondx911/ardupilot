@@ -1,5 +1,4 @@
 #include "Copter.h"
-#include <AP_RangeFinder/RangeFinder_Backend.h>
 
 double Input_front_right, Input_front, Input_front_left, Output, Input2;
 double Kp=0.15, Ki=0.1, Kd=0.004, Setpoint;
@@ -53,7 +52,7 @@ void Copter::althold_run()
 {
     AltHoldModeState althold_state;
     long currentMillis = AP_HAL::millis();
-   RC_Channel *rc08 = RC_Channels::rc_channel(CH_8);
+   RC_Channel *rc12 = RC_Channels::rc_channel(CH_12);
     	RC_Channel *rc14 = RC_Channels::rc_channel(CH_14);
     	int16_t error_front;
     AC_PID pid(TEST_P_front, TEST_I_front, TEST_D_front, TEST_IMAX * 100, TEST_FILTER, TEST_DT);
@@ -62,14 +61,9 @@ void Copter::althold_run()
 
     	float control_P_front, control_I_front, control_D_front;
     rangefinder.update();
-
-    AP_RangeFinder_Backend *s0 = rangefinder.get_backend(0);
-    AP_RangeFinder_Backend *s1 = rangefinder.get_backend(1);
-
-
-    Input_front = s0->distance_cm()*ahrs.cos_pitch();
-    Input_front_right = s0->distance_cm()*ahrs.cos_pitch();
-    Input_front_left = s1->distance_cm();
+    Input_front = rangefinder.distance_cm(1);
+    Input_front_right = rangefinder.distance_cm(0);
+    Input_front_left = rangefinder.distance_cm(2);
     Input_front = double(Input_front);
     Input_front_left = double(Input_front_left);
   //  long currentMillis = AP_HAL::millis();
@@ -180,12 +174,14 @@ void Copter::althold_run()
         avoid.adjust_roll_pitch(target_roll, target_pitch, aparm.angle_max);
 #endif
 
-        uint16_t radio08_in = rc08->get_radio_in();
+        uint16_t radio12_in = rc12->get_radio_in();
         uint16_t radio14_in = rc14->get_radio_in();
 
 
 
-        if(radio08_in == 1934){
+        if(radio14_in == 2084 && Input_front_right <= 150.0f){
+
+
 
      //   	Setpoint = (radio12_in - 1094) * (800.0f - 200.0f) / (1934 - 1094) + 200.0f;
 
@@ -197,42 +193,58 @@ void Copter::althold_run()
         	           control_D_front = pid.get_d();
 
 
+
+
         	float output_pid_front = -(control_P_front + control_I_front + control_D_front);
         	output_pid_front = constrain_float(output_pid_front,-600.0f,600.0f);
 
-        	//		attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate, get_smoothing_gain());
+        			attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, output_pid_front, target_yaw_rate, get_smoothing_gain());
         			//attitude_control->set_throttle_out(pilot_throttle_scaled, true, g.throttle_filt);
         			// adjust climb rate using rangefinder
 
 
         			        	        // get avoidance adjusted climb rate
-       			        	        target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);
-  			        	        	pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
-      			        	        pos_control->update_z_controller();
+        			        	        target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);
 
+        			        	        if(Input_front_right <= 200.0f){
 
-       			        	        // call position controller
-      			        	        pos_control->set_dt_xy(0.002);
-        			       	      pos_control->init_xy_controller(true);
+        			        	        	pos_control->set_alt_target_from_climb_rate_ff(20.0f, G_Dt, false);
+        			        	        	pos_control->update_z_controller();
 
-        			       	//        pos_control->set_xy_target(200.0f - Input_front,0.0f);
-        			       	     //   pos_control->set_target_to_stopping_point_xy();
-        			     	   //     pos_control->get_leash_xy();
-        			       	        pos_control->pos_to_rate_xy_stick_to_wall(AC_PosControl::XY_MODE_POS_AND_VEL_FF, ekfNavVelGainScaler, Input_front, 1);
+        			        	        } else{
 
-        			     	        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, - (pos_control->get_pitch()), target_yaw_rate, get_smoothing_gain());
+        			        	        	pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
+        			        	        pos_control->update_z_controller();
 
+        			        	        }
 
+        			        	        // call position controller
 
-        			        	        if(currentMillis - previousMillis > interval){
+        			        	  //      pos_control->set_xy_target(200.0f,0.0f);
+        			        	   //     pos_control->stick_to_wall(AC_PosControl::XY_MODE_POS_AND_VEL_FF, ekfNavVelGainScaler, Input_front , false);
+ 			if(currentMillis - previousMillis > interval){
         				  previousMillis = currentMillis;
-        				  hal.console->printf("the pitch is: %f \n", pos_control->get_pitch());
-        				  hal.console->printf("acceleration is : %f \n", pos_control->get_leash_xy());
-        				  hal.console->printf("distance to target: %f \n", pos_control->get_distance_to_target());
+        				  hal.console->printf("target climb rate: %f \n", Input_front_right);
+        			//	  hal.console->printf("range finder front right: %f \n", Input_front_right);
+        			//	  hal.console->printf("range finder front left: %f \n", Input_front_left);
         			//	hal.console->printf("xtarget: %f \n", output_pid_front);
-        				  hal.console->printf("distance is: %f \n", Input_front);
+        			//	  hal.console->printf("altitude is: %f \n", Input_front);
         					}
         			        	        break;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         }else{
 
         	// call attitude controller
@@ -250,14 +262,6 @@ void Copter::althold_run()
         	        // call position controller
         	        pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
         	        pos_control->update_z_controller();
-
-
-        	  	  hal.console->printf("target climb rate: %f \n", Input_front_right);
-        	          			//	  hal.console->printf("range finder front right: %f \n", Input_front_right);
-        	          				  hal.console->printf("velocity x: %f \n", inertial_nav.get_velocity().x);
-        	          			//	hal.console->printf("xtarget: %f \n", output_pid_front);
-        	          				  hal.console->printf("altitude is: %f \n", Input_front);
-
         	        break;
 
    }

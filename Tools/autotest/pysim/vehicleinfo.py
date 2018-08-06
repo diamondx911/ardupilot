@@ -107,7 +107,7 @@ class VehicleInfo(object):
         },
     },
     "ArduPlane": {
-        "default_frame": "jsbsim",
+        "default_frame": "plane",
         "frames": {
             # PLANE
             "quadplane-tilttri": {
@@ -119,6 +119,11 @@ class VehicleInfo(object):
                 "make_target": "sitl",
                 "waf_target": "bin/arduplane",
                 "default_params_filename": "default_params/quadplane-tilttrivec.parm",
+            },
+            "quadplane-tilthvec": {
+                "make_target": "sitl",
+                "waf_target": "bin/arduplane",
+                "default_params_filename": ["default_params/plane.parm", "default_params/quadplane-tilthvec.parm"],
             },
             "quadplane-tri": {
                 "make_target": "sitl",
@@ -190,6 +195,12 @@ class VehicleInfo(object):
                 "default_params_filename": ["default_params/rover.parm",
                                             "default_params/rover-skid.parm"],
             },
+            "balancebot": {
+                "waf_target": "bin/ardurover",
+                "default_params_filename": ["default_params/rover.parm",
+                                            "default_params/rover-skid.parm",
+                                            "default_params/balancebot.parm"],
+            },
             "gazebo-rover": {
                 "waf_target": "bin/ardurover",
                 "default_params_filename": ["default_params/rover.parm",
@@ -204,6 +215,10 @@ class VehicleInfo(object):
         "default_frame": "vectored",
         "frames": {
             "vectored": {
+                "waf_target": "bin/ardusub",
+                "default_params_filename": "default_params/sub.parm",
+            },
+            "gazebo-bluerov2": {
                 "waf_target": "bin/ardusub",
                 "default_params_filename": "default_params/sub.parm",
             },

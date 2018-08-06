@@ -18,14 +18,6 @@ const AP_Param::Info Plane::var_info[] = {
     // @User: Advanced
     GSCALAR(format_version,         "FORMAT_VERSION", 0),
 
-    // @Param: SYSID_SW_TYPE
-    // @DisplayName: Software Type
-    // @Description: This is used by the ground station to recognise the software type (eg ArduPlane vs ArduCopter)
-    // @Values: 0:ArduPlane,4:AntennaTracker,10:Copter,20:Rover,40:ArduSub
-    // @User: Advanced
-    // @ReadOnly: True
-    GSCALAR(software_type,          "SYSID_SW_TYPE",  Parameters::k_software_type),
-
     // @Param: SYSID_THISMAV
     // @DisplayName: MAVLink system ID of this vehicle
     // @Description: Allows setting an individual MAVLink system id for this vehicle to distinguish it from others on the same network
@@ -181,9 +173,9 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: TKOFF_THR_SLEW
     // @DisplayName: Takeoff throttle slew rate
-    // @Description: This parameter sets the slew rate for the throttle during auto takeoff. When this is zero the THR_SLEWRATE parameter is used during takeoff. For rolling takeoffs it can be a good idea to set a lower slewrate for takeoff to give a slower acceleration which can improve ground steering control. The value is a percentage throttle change per second, so a value of 20 means to advance the throttle over 5 seconds on takeoff. Values below 20 are not recommended as they may cause the plane to try to climb out with too little throttle.
+    // @Description: This parameter sets the slew rate for the throttle during auto takeoff. When this is zero the THR_SLEWRATE parameter is used during takeoff. For rolling takeoffs it can be a good idea to set a lower slewrate for takeoff to give a slower acceleration which can improve ground steering control. The value is a percentage throttle change per second, so a value of 20 means to advance the throttle over 5 seconds on takeoff. Values below 20 are not recommended as they may cause the plane to try to climb out with too little throttle. A value of -1 means no limit on slew rate in takeoff.
     // @Units: %/s
-    // @Range: 0 127
+    // @Range: -1 127
     // @Increment: 1
     // @User: User
     GSCALAR(takeoff_throttle_slewrate, "TKOFF_THR_SLEW",  0),
@@ -436,7 +428,7 @@ const AP_Param::Info Plane::var_info[] = {
 
     // @Param: THR_SLEWRATE
     // @DisplayName: Throttle slew rate
-    // @Description: maximum percentage change in throttle per second. A setting of 10 means to not change the throttle by more than 10% of the full throttle range in one second.
+    // @Description: maximum percentage change in throttle per second. A setting of 10 means to not change the throttle by more than 10% of the full throttle range in one second. Note that the minimum throttle change is 1 microsecond per loop, which provides a lower limit on the throttle slew rate, especially for quadplanes that run at 300 loops per second by default.
     // @Units: %/s
     // @Range: 0 127
     // @Increment: 1
@@ -501,9 +493,9 @@ const AP_Param::Info Plane::var_info[] = {
     // @Param: FS_SHORT_ACTN
     // @DisplayName: Short failsafe action
     // @Description: The action to take on a short (FS_SHORT_TIMEOUT) failsafe event. A short failsafe even can be triggered either by loss of RC control (see THR_FS_VALUE) or by loss of GCS control (see FS_GCS_ENABL). If in CIRCLE or RTL mode this parameter is ignored. A short failsafe event in stabilization and manual modes will cause an change to CIRCLE mode if FS_SHORT_ACTN is 0 or 1, and a change to FBWA mode if FS_SHORT_ACTN is 2. In all other modes (AUTO, GUIDED and LOITER) a short failsafe event will cause no mode change is FS_SHORT_ACTN is set to 0, will cause a change to CIRCLE mode if set to 1 and will change to FBWA mode if set to 2. Please see the documentation for FS_LONG_ACTN for the behaviour after FS_LONG_TIMEOUT seconds of failsafe.
-    // @Values: 0:CIRCLE/no change(if already in AUTO|GUIDED|LOITER),1:CIRCLE,2:FBWA
+    // @Values: 0:CIRCLE/no change(if already in AUTO|GUIDED|LOITER),1:CIRCLE,2:FBWA,3:Disable
     // @User: Standard
-    GSCALAR(short_fs_action,        "FS_SHORT_ACTN",  0),
+    GSCALAR(fs_action_short,        "FS_SHORT_ACTN",  FS_ACTION_SHORT_BESTGUESS),
 
     // @Param: FS_SHORT_TIMEOUT
     // @DisplayName: Short failsafe timeout
@@ -512,14 +504,14 @@ const AP_Param::Info Plane::var_info[] = {
     // @Range: 1 100
     // @Increment: 0.5
     // @User: Standard
-    GSCALAR(short_fs_timeout,        "FS_SHORT_TIMEOUT", 1.5f),
+    GSCALAR(fs_timeout_short,        "FS_SHORT_TIMEOUT", 1.5f),
 
     // @Param: FS_LONG_ACTN
     // @DisplayName: Long failsafe action
     // @Description: The action to take on a long (FS_LONG_TIMEOUT seconds) failsafe event. If the aircraft was in a stabilization or manual mode when failsafe started and a long failsafe occurs then it will change to RTL mode if FS_LONG_ACTN is 0 or 1, and will change to FBWA if FS_LONG_ACTN is set to 2. If the aircraft was in an auto mode (such as AUTO or GUIDED) when the failsafe started then it will continue in the auto mode if FS_LONG_ACTN is set to 0, will change to RTL mode if FS_LONG_ACTN is set to 1 and will change to FBWA mode if FS_LONG_ACTN is set to 2. If FS_LONG_ACTION is set to 3, the parachute will be deployed (make sure the chute is configured and enabled). 
     // @Values: 0:Continue,1:ReturnToLaunch,2:Glide,3:Deploy Parachute
     // @User: Standard
-    GSCALAR(long_fs_action,         "FS_LONG_ACTN",   0),
+    GSCALAR(fs_action_long,         "FS_LONG_ACTN",   FS_ACTION_LONG_CONTINUE),
 
     // @Param: FS_LONG_TIMEOUT
     // @DisplayName: Long failsafe timeout
@@ -528,23 +520,7 @@ const AP_Param::Info Plane::var_info[] = {
     // @Range: 1 300
     // @Increment: 0.5
     // @User: Standard
-    GSCALAR(long_fs_timeout,        "FS_LONG_TIMEOUT", 5),
-
-    // @Param: FS_BATT_VOLTAGE
-    // @DisplayName: Failsafe battery voltage
-    // @Description: Battery voltage to trigger failsafe. Set to 0 to disable battery voltage failsafe. If the battery voltage drops below this voltage continuously for 10 seconds then the plane will switch to RTL mode.
-    // @Units: V
-    // @Increment: 0.1
-    // @User: Standard
-    GSCALAR(fs_batt_voltage,        "FS_BATT_VOLTAGE", 0),
-
-    // @Param: FS_BATT_MAH
-    // @DisplayName: Failsafe battery milliAmpHours
-    // @Description: Battery capacity remaining to trigger failsafe. Set to 0 to disable battery remaining failsafe. If the battery remaining drops below this level then the plane will switch to RTL mode immediately.
-    // @Units: mA.h
-    // @Increment: 50
-    // @User: Standard
-    GSCALAR(fs_batt_mah,            "FS_BATT_MAH", 0),
+    GSCALAR(fs_timeout_long,        "FS_LONG_TIMEOUT", 5),
 
     // @Param: FS_GCS_ENABL
     // @DisplayName: GCS failsafe enable
@@ -710,8 +686,8 @@ const AP_Param::Info Plane::var_info[] = {
     // @Param: DSPOILR_RUD_RATE
     // @DisplayName: Differential spoilers rudder rate
     // @Description: Sets the amount of deflection that the rudder output will apply to the differential spoilers, as a percentage. The default value of 100 results in full rudder applying full deflection. A value of 0 will result in the differential spoilers exactly following the elevons (no rudder effect).
-    // @Units: d%
-    // @Range: -1000 1000
+    // @Units: %
+    // @Range: -100 100
     // @User: User
     GSCALAR(dspoiler_rud_rate,      "DSPOILR_RUD_RATE",  DSPOILR_RUD_RATE_DEFAULT),
 
@@ -971,7 +947,7 @@ const AP_Param::Info Plane::var_info[] = {
     GOBJECT(tuning,           "TUNE_", AP_Tuning_Plane),
     
     // @Group: Q_A_
-    // @Path: ../libraries/AC_AttitudeControl/AC_AttitudeControl_Multi.cpp
+    // @Path: ../libraries/AC_AttitudeControl/AC_AttitudeControl.cpp,../libraries/AC_AttitudeControl/AC_AttitudeControl_Multi.cpp
     { AP_PARAM_GROUP, "Q_A_", Parameters::k_param_q_attitude_control,
       (const void *)&plane.quadplane.attitude_control,
       {group_info : AC_AttitudeControl_Multi::var_info}, AP_PARAM_FLAG_POINTER },
@@ -1030,9 +1006,9 @@ const AP_Param::Info Plane::var_info[] = {
     // @Path: ../libraries/AP_AHRS/AP_AHRS.cpp
     GOBJECT(ahrs,                   "AHRS_",    AP_AHRS),
 
-    // @Group: ARSPD_
+    // @Group: ARSPD
     // @Path: ../libraries/AP_Airspeed/AP_Airspeed.cpp
-    GOBJECT(airspeed,                               "ARSPD_",   AP_Airspeed),
+    GOBJECT(airspeed,                               "ARSPD",   AP_Airspeed),
 
     // @Group: NAVL1_
     // @Path: ../libraries/AP_L1_Control/AP_L1_Control.cpp
@@ -1120,6 +1096,12 @@ const AP_Param::Info Plane::var_info[] = {
     // @Path: ../libraries/AP_Landing/AP_Landing.cpp
     GOBJECT(landing, "LAND_", AP_Landing),
 
+#if OSD_ENABLED
+    // @Group: OSD
+    // @Path: ../libraries/AP_OSD/AP_OSD.cpp
+    GOBJECT(osd, "OSD", AP_OSD),
+#endif
+    
     AP_VAREND
 };
 
@@ -1144,22 +1126,25 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Values: 0:NotEnforced,1:Enforced
     // @User: Advanced
     AP_GROUPINFO("SYSID_ENFORCE", 4, ParametersG2, sysid_enforce, 0),
-
+#if STATS_ENABLED == ENABLED
     // @Group: STAT
     // @Path: ../libraries/AP_Stats/AP_Stats.cpp
     AP_SUBGROUPINFO(stats, "STAT", 5, ParametersG2, AP_Stats),
+#endif
 
     // @Group: SERVO
     // @Path: ../libraries/SRV_Channel/SRV_Channels.cpp
     AP_SUBGROUPINFO(servo_channels, "SERVO", 6, ParametersG2, SRV_Channels),
 
     // @Group: RC
-    // @Path: ../libraries/RC_Channel/RC_Channels.cpp
-    AP_SUBGROUPINFO(rc_channels, "RC", 7, ParametersG2, RC_Channels),
+    // @Path: ../libraries/RC_Channel/RC_Channels_VarInfo.h
+    AP_SUBGROUPINFO(rc_channels, "RC", 7, ParametersG2, RC_Channels_Plane),
     
+#if SOARING_ENABLED == ENABLED
     // @Group: SOAR_
     // @Path: ../libraries/AP_Soaring/AP_Soaring.cpp
     AP_SUBGROUPINFO(soaring_controller, "SOAR_", 8, ParametersG2, SoaringController),
+#endif
   
     // @Param: RUDD_DT_GAIN
     // @DisplayName: rudder differential thrust gain
@@ -1186,12 +1171,20 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("HOME_RESET_ALT", 11, ParametersG2, home_reset_threshold, 0),
 
+#if GRIPPER_ENABLED == ENABLED
+    // @Group: GRIP_
+    // @Path: ../libraries/AP_Gripper/AP_Gripper.cpp
+    AP_SUBGROUPINFO(gripper, "GRIP_", 12, ParametersG2, AP_Gripper),
+#endif
+
     AP_GROUPEND
 };
 
 ParametersG2::ParametersG2(void) :
-    ice_control(plane.rpm_sensor, plane.ahrs),
-    soaring_controller(plane.ahrs, plane.TECS_controller, plane.aparm)
+    ice_control(plane.rpm_sensor, plane.ahrs)
+#if SOARING_ENABLED == ENABLED
+    ,soaring_controller(plane.ahrs, plane.TECS_controller, plane.aparm)
+#endif
 {
     AP_Param::setup_object_defaults(this, var_info);
 }
@@ -1263,6 +1256,10 @@ const AP_Param::ConversionInfo conversion_table[] = {
     { Parameters::k_param_land_abort_throttle_enable,0,AP_PARAM_INT8, "LAND_ABORT_THR" },
     { Parameters::k_param_land_flap_percent,  0,      AP_PARAM_INT8,  "LAND_FLAP_PERCENT" },
 
+    // battery failsafes
+    { Parameters::k_param_fs_batt_voltage,   0,      AP_PARAM_FLOAT,  "BATT_FS_LOW_VOLT" },
+    { Parameters::k_param_fs_batt_mah,       0,      AP_PARAM_FLOAT,  "BATT_FS_LOW_MAH" },
+
 };
 
 void Plane::load_parameters(void)
@@ -1285,7 +1282,7 @@ void Plane::load_parameters(void)
 
     uint32_t before = micros();
     // Load all auto-loaded EEPROM variables
-    AP_Param::load_all(false);
+    AP_Param::load_all();
     AP_Param::convert_old_parameters(&conversion_table[0], ARRAY_SIZE(conversion_table));
 
     // setup defaults in SRV_Channels

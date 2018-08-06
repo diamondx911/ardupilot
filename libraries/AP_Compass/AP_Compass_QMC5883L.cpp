@@ -181,8 +181,6 @@ void AP_Compass_QMC5883L::timer()
 	  return ;
   }
 
-    uint32_t now = AP_HAL::micros();
-
     auto x = -static_cast<int16_t>(le16toh(buffer.rx));
     auto y = static_cast<int16_t>(le16toh(buffer.ry));
     auto z = -static_cast<int16_t>(le16toh(buffer.rz));
@@ -204,19 +202,23 @@ void AP_Compass_QMC5883L::timer()
     rotate_field(field, _instance);
 
     /* publish raw_field (uncorrected point sample) for calibration use */
-    publish_raw_field(field, now, _instance);
+    publish_raw_field(field, _instance);
 
     /* correct raw_field for known errors */
     correct_field(field, _instance);
+
+    if (!field_ok(field)) {
+        return;
+    }
 
     if (_sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
         _accum += field;
         _accum_count++;
         if(_accum_count == 20){
-        	_accum.x /= 2;
-        	_accum.y /= 2;
-        	_accum.z /= 2;
-        	_accum_count = 10;
+            _accum.x /= 2;
+            _accum.y /= 2;
+            _accum.z /= 2;
+            _accum_count = 10;
         }
         _sem->give();
     }

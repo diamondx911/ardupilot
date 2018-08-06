@@ -21,8 +21,14 @@ void PX4RCInput::init()
     if (_rc_sub == -1) {
         AP_HAL::panic("Unable to subscribe to input_rc");
     }
-    clear_overrides();
     pthread_mutex_init(&rcin_mutex, nullptr);
+
+#if HAL_RCINPUT_WITH_AP_RADIO
+    radio = AP_Radio::instance();
+    if (radio) {
+        radio->init();
+    }
+#endif
 }
 
 bool PX4RCInput::new_input()
@@ -33,15 +39,10 @@ bool PX4RCInput::new_input()
         // don't consider input valid if we are in RC failsafe.
         valid = false;
     }
-    if (_override_valid) {
-        // if we have RC overrides active, then always consider it valid
-        valid = true;
-    }
     _last_read = _rcin.timestamp_last_signal;
-    _override_valid = false;
     pthread_mutex_unlock(&rcin_mutex);
     if (_rcin.input_source != last_input_source) {
-        gcs().send_text(MAV_SEVERITY_DEBUG, "RCInput: decoding %s\n", input_source_name(_rcin.input_source));
+        gcs().send_text(MAV_SEVERITY_DEBUG, "RCInput: decoding %s", input_source_name(_rcin.input_source));
         last_input_source = _rcin.input_source;
     }
     return valid;
@@ -57,21 +58,20 @@ uint8_t PX4RCInput::num_channels()
 
 uint16_t PX4RCInput::read(uint8_t ch)
 {
-    if (ch >= RC_INPUT_MAX_CHANNELS) {
+    if (ch >= MIN(RC_INPUT_MAX_CHANNELS, _rcin.channel_count)) {
         return 0;
     }
     pthread_mutex_lock(&rcin_mutex);
-    if (_override[ch]) {
-        uint16_t v = _override[ch];
-        pthread_mutex_unlock(&rcin_mutex);
-        return v;
-    }
-    if (ch >= _rcin.channel_count) {
-        pthread_mutex_unlock(&rcin_mutex);
-        return 0;
-    }
     uint16_t v = _rcin.values[ch];
     pthread_mutex_unlock(&rcin_mutex);
+
+#if HAL_RCINPUT_WITH_AP_RADIO
+    if (radio && ch == 0) {
+        // hook to allow for update of radio on main thread, for mavlink sends
+        radio->update();
+    }
+#endif
+
     return v;
 }
 
@@ -84,37 +84,6 @@ uint8_t PX4RCInput::read(uint16_t* periods, uint8_t len)
         periods[i] = read(i);
     }
     return len;
-}
-
-bool PX4RCInput::set_overrides(int16_t *overrides, uint8_t len)
-{
-    bool res = false;
-    for (uint8_t i = 0; i < len; i++) {
-        res |= set_override(i, overrides[i]);
-    }
-    return res;
-}
-
-bool PX4RCInput::set_override(uint8_t channel, int16_t override) {
-    if (override < 0) {
-        return false; /* -1: no change. */
-    }
-    if (channel >= RC_INPUT_MAX_CHANNELS) {
-        return false;
-    }
-    _override[channel] = override;
-    if (override != 0) {
-        _override_valid = true;
-        return true;
-    }
-    return false;
-}
-
-void PX4RCInput::clear_overrides()
-{
-    for (uint8_t i = 0; i < RC_INPUT_MAX_CHANNELS; i++) {
-        set_override(i, 0);
-    }
 }
 
 const char *PX4RCInput::input_source_name(uint8_t id) const
@@ -154,6 +123,20 @@ void PX4RCInput::_timer_tick(void)
         }
         pthread_mutex_unlock(&rcin_mutex);
     }
+
+#if HAL_RCINPUT_WITH_AP_RADIO
+    if (radio && radio->last_recv_us() != last_radio_us) {
+        last_radio_us = radio->last_recv_us();
+        pthread_mutex_lock(&rcin_mutex);
+        _rcin.timestamp_last_signal = last_radio_us;
+        _rcin.channel_count = radio->num_channels();
+        for (uint8_t i=0; i<_rcin.channel_count; i++) {
+            _rcin.values[i] = radio->read(i);
+        }
+        pthread_mutex_unlock(&rcin_mutex);
+    }
+#endif
+    
     // note, we rely on the vehicle code checking new_input()
     // and a timeout for the last valid input to handle failsafe
     perf_end(_perf_rcin);
@@ -170,6 +153,12 @@ bool PX4RCInput::rc_bind(int dsmMode)
         return false;
     }
 
+#if HAL_RCINPUT_WITH_AP_RADIO
+    if (radio) {
+        radio->start_recv_bind();
+    }
+#endif
+    
     uint32_t mode = (dsmMode == 0) ? DSM2_BIND_PULSES : ((dsmMode == 1) ? DSMX_BIND_PULSES : DSMX8_BIND_PULSES);
     int ret = ioctl(fd, DSM_BIND_START, mode);
     close(fd);

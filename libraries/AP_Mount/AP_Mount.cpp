@@ -395,27 +395,18 @@ const AP_Param::GroupInfo AP_Mount::var_info[] = {
 
 AP_Mount::AP_Mount(const AP_AHRS_TYPE &ahrs, const struct Location &current_loc) :
     _ahrs(ahrs),
-    _current_loc(current_loc),
-    _num_instances(0),
-    _primary(0)
+    _current_loc(current_loc)
 {
 	AP_Param::setup_object_defaults(this, var_info);
-
-    // initialise backend pointers and mode
-    for (uint8_t i=0; i<AP_MOUNT_MAX_INSTANCES; i++) {
-        _backends[i] = nullptr;
-    }
 }
 
 // init - detect and initialise all mounts
-void AP_Mount::init(DataFlash_Class *dataflash, const AP_SerialManager& serial_manager)
+void AP_Mount::init(const AP_SerialManager& serial_manager)
 {
     // check init has not been called before
     if (_num_instances != 0) {
         return;
     }
-
-    _dataflash = dataflash;
 
     // default mount to servo mount if rc output channels to control roll, tilt or pan have been defined
     if (!state[0]._type.configured()) {

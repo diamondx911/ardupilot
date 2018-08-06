@@ -1,5 +1,4 @@
 #include "Tracker.h"
-#include "version.h"
 
 // mission storage
 static const StorageAccess wp_storage(StorageManager::StorageMission);
@@ -14,9 +13,9 @@ void Tracker::init_tracker()
     // initialise console serial port
     serial_manager.init_console();
 
-    hal.console->printf("\n\nInit " THISFIRMWARE
-                               "\n\nFree RAM: %u\n",
-                          hal.util->available_memory());
+    hal.console->printf("\n\nInit %s\n\nFree RAM: %u\n",
+                        AP::fwversion().fw_string,
+                        (unsigned)hal.util->available_memory());
 
     // Check the EEPROM format version before loading any parameters from EEPROM
     load_parameters();
@@ -41,18 +40,13 @@ void Tracker::init_tracker()
 #endif
 
     // initialise notify
-    notify.init(false);
+    notify.init();
     AP_Notify::flags.pre_arm_check = true;
     AP_Notify::flags.pre_arm_gps_check = true;
-    AP_Notify::flags.failsafe_battery = false;
 
     // init baro before we start the GCS, so that the CLI baro test works
+    barometer.set_log_baro_bit(MASK_LOG_IMU);
     barometer.init();
-
-    // we start by assuming USB connected, as we initialed the serial
-    // port with SERIAL0_BAUD. check_usb_mux() fixes this if need be.    
-    usb_connected = true;
-    check_usb_mux();
 
     // setup telem slots with serial ports
     gcs().setup_uarts(serial_manager);
@@ -80,7 +74,7 @@ void Tracker::init_tracker()
     ins.init(scheduler.get_loop_rate_hz());
     ahrs.reset();
 
-    init_barometer(true);
+    barometer.calibrate();
 
     // initialise DataFlash library
     DataFlash.setVehicle_Startup_Log_Writer(FUNCTOR_BIND(&tracker, &Tracker::Log_Write_Vehicle_Startup_Messages, void));
@@ -111,7 +105,7 @@ void Tracker::init_tracker()
     gcs().send_text(MAV_SEVERITY_INFO,"Ready to track");
     hal.scheduler->delay(1000); // Why????
 
-    set_mode(AUTO); // tracking
+    set_mode(AUTO, MODE_REASON_STARTUP); // tracking
 
     if (g.startup_delay > 0) {
         // arm servos with trim value to allow them to start up (required
@@ -121,13 +115,6 @@ void Tracker::init_tracker()
 
     // disable safety if requested
     BoardConfig.init_safety();    
-}
-
-// updates the status of the notify objects
-// should be called at 50hz
-void Tracker::update_notify()
-{
-    notify.update();
 }
 
 /*
@@ -165,7 +152,15 @@ void Tracker::set_home(struct Location temp)
 {
     set_home_eeprom(temp);
     current_loc = temp;
-    gcs().send_home(temp);
+
+    // check EKF origin has been set
+    Location ekf_origin;
+    if (ahrs.get_origin(ekf_origin)) {
+        ahrs.set_home(temp);
+    }
+
+    gcs().send_home();
+    gcs().send_ekf_origin();
 }
 
 void Tracker::arm_servos()
@@ -192,7 +187,7 @@ void Tracker::prepare_servos()
     SRV_Channels::output_ch_all();
 }
 
-void Tracker::set_mode(enum ControlMode mode)
+void Tracker::set_mode(enum ControlMode mode, mode_reason_t reason)
 {
     if (control_mode == mode) {
         // don't switch modes if we are already in the correct mode.
@@ -215,18 +210,7 @@ void Tracker::set_mode(enum ControlMode mode)
     }
 
 	// log mode change
-	DataFlash.Log_Write_Mode(control_mode);
-}
-
-void Tracker::check_usb_mux(void)
-{
-    bool usb_check = hal.gpio->usb_connected();
-    if (usb_check == usb_connected) {
-        return;
-    }
-
-    // the user has switched to/from the telemetry port
-    usb_connected = usb_check;
+	DataFlash.Log_Write_Mode(control_mode, reason);
 }
 
 /*

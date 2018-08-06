@@ -530,6 +530,48 @@ void AP_Mission::write_home_to_storage()
     write_cmd_to_storage(0,home_cmd);
 }
 
+MAV_MISSION_RESULT AP_Mission::sanity_check_params(const mavlink_mission_item_int_t& packet) {
+    uint8_t nan_mask;
+    switch (packet.command) {
+        case MAV_CMD_NAV_WAYPOINT:
+            nan_mask = ~(1 << 3); // param 4 can be nan
+            break;
+        case MAV_CMD_NAV_LAND:
+            nan_mask = ~(1 << 3); // param 4 can be nan
+            break;
+        case MAV_CMD_NAV_TAKEOFF:
+            nan_mask = ~(1 << 3); // param 4 can be nan
+            break;
+        case MAV_CMD_NAV_VTOL_TAKEOFF:
+            nan_mask = ~(1 << 3); // param 4 can be nan
+            break;
+        case MAV_CMD_NAV_VTOL_LAND:
+            nan_mask = ~((1 << 2) | (1 << 3)); // param 3 and 4 can be nan
+            break;
+        default:
+            nan_mask = 0xff;
+            break;
+    }
+
+    if (((nan_mask & (1 << 0)) && isnan(packet.param1)) ||
+        isinf(packet.param1)) {
+        return MAV_MISSION_INVALID_PARAM1;
+    }
+    if (((nan_mask & (1 << 1)) && isnan(packet.param2)) ||
+        isinf(packet.param2)) {
+        return MAV_MISSION_INVALID_PARAM2;
+    }
+    if (((nan_mask & (1 << 2)) && isnan(packet.param3)) ||
+        isinf(packet.param3)) {
+        return MAV_MISSION_INVALID_PARAM3;
+    }
+    if (((nan_mask & (1 << 3)) && isnan(packet.param4)) ||
+        isinf(packet.param4)) {
+        return MAV_MISSION_INVALID_PARAM4;
+    }
+    return MAV_MISSION_ACCEPTED;
+}
+
 // mavlink_to_mission_cmd - converts mavlink message to an AP_Mission::Mission_Command object which can be stored to eeprom
 //  return MAV_MISSION_ACCEPTED on success, MAV_MISSION_RESULT error on failure
 MAV_MISSION_RESULT AP_Mission::mavlink_int_to_mission_cmd(const mavlink_mission_item_int_t& packet, AP_Mission::Mission_Command& cmd)
@@ -541,6 +583,11 @@ MAV_MISSION_RESULT AP_Mission::mavlink_int_to_mission_cmd(const mavlink_mission_
     cmd.index = packet.seq;
     cmd.id = packet.command;
     cmd.content.location.options = 0;
+
+    MAV_MISSION_RESULT param_check = sanity_check_params(packet);
+    if (param_check != MAV_MISSION_ACCEPTED) {
+        return param_check;
+    }
 
     // command specific conversions from mavlink packet to mission command
     switch (cmd.id) {
@@ -604,6 +651,7 @@ MAV_MISSION_RESULT AP_Mission::mavlink_int_to_mission_cmd(const mavlink_mission_
     case MAV_CMD_NAV_LAND:                              // MAV ID: 21
         copy_location = true;
         cmd.p1 = packet.param1;                         // abort target altitude(m)  (plane only)
+        cmd.content.location.flags.loiter_ccw = is_negative(packet.param4); // yaw direction, (plane deepstall only)
         break;
 
     case MAV_CMD_NAV_TAKEOFF:                           // MAV ID: 22
@@ -805,6 +853,13 @@ MAV_MISSION_RESULT AP_Mission::mavlink_int_to_mission_cmd(const mavlink_mission_
         cmd.content.set_yaw_speed.relative_angle = packet.param3;   // 0 = absolute angle, 1 = relative angle
         break;
 
+    case MAV_CMD_DO_WINCH:                              // MAV ID: 42600
+        cmd.content.winch.num = packet.param1;          // winch number
+        cmd.content.winch.action = packet.param2;       // action (0 = relax, 1 = length control, 2 = rate control).  See WINCH_ACTION enum
+        cmd.content.winch.release_length = packet.param3;   // cable distance to unwind in meters, negative numbers to wind in cable
+        cmd.content.winch.release_rate = packet.param4; // release rate in meters/second
+        break;
+
     default:
         // unrecognised command
         return MAV_MISSION_UNSUPPORTED;
@@ -822,38 +877,30 @@ MAV_MISSION_RESULT AP_Mission::mavlink_int_to_mission_cmd(const mavlink_mission_
                 return MAV_MISSION_INVALID_PARAM6_Y;
             }
         }
-        if (fabsf(packet.z) >= LOCATION_ALT_MAX_M) {
+        if (isnan(packet.z) || fabsf(packet.z) >= LOCATION_ALT_MAX_M) {
             return MAV_MISSION_INVALID_PARAM7;
         }
+
+        if (copy_location) {
+            cmd.content.location.lat = packet.x;
+            cmd.content.location.lng = packet.y;
+        }
+
+        cmd.content.location.alt = packet.z * 100.0f;       // convert packet's alt (m) to cmd alt (cm)
 
         switch (packet.frame) {
 
         case MAV_FRAME_MISSION:
         case MAV_FRAME_GLOBAL:
-            if (copy_location) {
-                cmd.content.location.lat = packet.x;
-                cmd.content.location.lng = packet.y;
-            }
-            cmd.content.location.alt = packet.z * 100.0f;       // convert packet's alt (m) to cmd alt (cm)
             cmd.content.location.flags.relative_alt = 0;
             break;
 
         case MAV_FRAME_GLOBAL_RELATIVE_ALT:
-            if (copy_location) {
-                cmd.content.location.lat = packet.x;
-                cmd.content.location.lng = packet.y;
-            }
-            cmd.content.location.alt = packet.z * 100.0f;       // convert packet's alt (m) to cmd alt (cm)
             cmd.content.location.flags.relative_alt = 1;
             break;
 
 #if AP_TERRAIN_AVAILABLE
         case MAV_FRAME_GLOBAL_TERRAIN_ALT:
-            if (copy_location) {
-                cmd.content.location.lat = packet.x;
-                cmd.content.location.lng = packet.y;
-            }
-            cmd.content.location.alt = packet.z * 100.0f;       // convert packet's alt (m) to cmd alt (cm)
             // we mark it as a relative altitude, as it doesn't have
             // home alt added
             cmd.content.location.flags.relative_alt = 1;
@@ -1058,6 +1105,7 @@ bool AP_Mission::mission_cmd_to_mavlink_int(const AP_Mission::Mission_Command& c
     case MAV_CMD_NAV_LAND:                              // MAV ID: 21
         copy_location = true;
         packet.param1 = cmd.p1;                        // abort target altitude(m)  (plane only)
+        packet.param4 = cmd.content.location.flags.loiter_ccw ? -1 : 1; // yaw direction, (plane deepstall only)
         break;
 
     case MAV_CMD_NAV_TAKEOFF:                           // MAV ID: 22
@@ -1259,6 +1307,13 @@ bool AP_Mission::mission_cmd_to_mavlink_int(const AP_Mission::Mission_Command& c
         packet.param1 = cmd.content.set_yaw_speed.angle_deg;        // target angle in degrees
         packet.param2 = cmd.content.set_yaw_speed.speed;            // speed in meters/second
         packet.param3 = cmd.content.set_yaw_speed.relative_angle;   // 0 = absolute angle, 1 = relative angle
+        break;
+
+    case MAV_CMD_DO_WINCH:
+        packet.param1 = cmd.content.winch.num;              // winch number
+        packet.param2 = cmd.content.winch.action;           // action (0 = relax, 1 = length control, 2 = rate control).  See WINCH_ACTION enum
+        packet.param3 = cmd.content.winch.release_length;   // cable distance to unwind in meters, negative numbers to wind in cable
+        packet.param4 = cmd.content.winch.release_rate;     // release rate in meters/second
         break;
 
     default:
@@ -1685,4 +1740,49 @@ bool AP_Mission::jump_to_landing_sequence(void)
 
     gcs().send_text(MAV_SEVERITY_WARNING, "Unable to start landing sequence");
     return false;
+}
+
+const char *AP_Mission::Mission_Command::type() const {
+    switch(id) {
+    case MAV_CMD_NAV_WAYPOINT:
+        return "WP";
+    case MAV_CMD_NAV_RETURN_TO_LAUNCH:
+        return "RTL";
+    case MAV_CMD_NAV_LOITER_UNLIM:
+        return "LoitUnlim";
+    case MAV_CMD_NAV_LOITER_TIME:
+        return "LoitTime";
+    case MAV_CMD_NAV_SET_YAW_SPEED:
+        return "SetYawSpd";
+    case MAV_CMD_CONDITION_DELAY:
+        return "CondDelay";
+    case MAV_CMD_CONDITION_DISTANCE:
+        return "CondDist";
+    case MAV_CMD_DO_CHANGE_SPEED:
+        return "ChangeSpeed";
+    case MAV_CMD_DO_SET_HOME:
+        return "SetHome";
+    case MAV_CMD_DO_SET_SERVO:
+        return "SetServo";
+    case MAV_CMD_DO_SET_RELAY:
+        return "SetRelay";
+    case MAV_CMD_DO_REPEAT_SERVO:
+        return "RepeatServo";
+    case MAV_CMD_DO_REPEAT_RELAY:
+        return "RepeatRelay";
+    case MAV_CMD_DO_CONTROL_VIDEO:
+        return "CtrlVideo";
+    case MAV_CMD_DO_DIGICAM_CONFIGURE:
+        return "DigiCamCfg";
+    case MAV_CMD_DO_DIGICAM_CONTROL:
+        return "DigiCamCtrl";
+    case MAV_CMD_DO_SET_CAM_TRIGG_DIST:
+        return "SetCamTrigDst";
+    case MAV_CMD_DO_SET_ROI:
+        return "SetROI";
+    case MAV_CMD_DO_SET_REVERSE:
+        return "SetReverse";
+    default:
+        return "?";
+    }
 }

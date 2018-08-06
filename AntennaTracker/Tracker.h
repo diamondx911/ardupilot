@@ -34,7 +34,6 @@
 #include <AP_Baro/AP_Baro.h>        // ArduPilot barometer library
 #include <AP_Compass/AP_Compass.h>     // ArduPilot Mega Magnetometer Library
 #include <AP_Math/AP_Math.h>        // ArduPilot Mega Vector/Matrix math Library
-#include <AP_ADC/AP_ADC.h>         // ArduPilot Mega Analog to Digital Converter Library
 #include <AP_InertialSensor/AP_InertialSensor.h> // Inertial Sensor Library
 #include <AP_AccelCal/AP_AccelCal.h>                // interface and maths for accelerometer calibration
 #include <AP_AHRS/AP_AHRS.h>         // ArduPilot Mega DCM Library
@@ -56,7 +55,6 @@
 #include <AP_Notify/AP_Notify.h>      // Notify library
 #include <AP_BattMonitor/AP_BattMonitor.h> // Battery monitor library
 #include <AP_Airspeed/AP_Airspeed.h>
-#include <RC_Channel/RC_Channel.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_BoardConfig/AP_BoardConfig_CAN.h>
 #include <AP_OpticalFlow/AP_OpticalFlow.h>
@@ -67,6 +65,7 @@
 #include "config.h"
 #include "defines.h"
 
+#include "RC_Channel.h"
 #include "Parameters.h"
 #include "GCS_Mavlink.h"
 #include "GCS_Tracker.h"
@@ -83,6 +82,8 @@ public:
 
     Tracker(void);
 
+    static const AP_FWVersion fwver;
+
     // HAL::Callbacks implementation.
     void setup() override;
     void loop() override;
@@ -92,13 +93,11 @@ private:
 
     // main loop scheduler
     AP_Scheduler scheduler;
- 
+
     // notification object for LEDs, buzzers etc
     AP_Notify notify;
 
     uint32_t start_time_ms = 0;
-
-    bool usb_connected = false;
 
     DataFlash_Class DataFlash;
 
@@ -110,15 +109,15 @@ private:
 
     AP_InertialSensor ins;
 
-    RangeFinder rng {serial_manager, ROTATION_NONE};
+    RangeFinder rng{serial_manager, ROTATION_NONE};
 
 // Inertial Navigation EKF
 #if AP_AHRS_NAVEKF_AVAILABLE
-    NavEKF2 EKF2{&ahrs, barometer, rng};
-    NavEKF3 EKF3{&ahrs, barometer, rng};
-    AP_AHRS_NavEKF ahrs{ins, barometer, gps, rng, EKF2, EKF3};
+    NavEKF2 EKF2{&ahrs, rng};
+    NavEKF3 EKF3{&ahrs, rng};
+    AP_AHRS_NavEKF ahrs{EKF2, EKF3};
 #else
-    AP_AHRS_DCM ahrs{ins, barometer, gps};
+    AP_AHRS_DCM ahrs;
 #endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -128,7 +127,7 @@ private:
     /**
        antenna control channels
     */
-    RC_Channels rc_channels;
+    RC_Channels_Tracker rc_channels;
     SRV_Channels servo_channels;
 
     LowPassFilterFloat yaw_servo_out_filt;
@@ -147,6 +146,11 @@ private:
     // board specific config for CAN bus
     AP_BoardConfig_CAN BoardConfig_CAN;
 #endif
+
+    // Battery Sensors
+    AP_BattMonitor battery{MASK_LOG_CURRENT,
+                           FUNCTOR_BIND_MEMBER(&Tracker::handle_battery_failsafe, void, const char*, const int8_t),
+                           nullptr};
 
     struct Location current_loc;
 
@@ -186,22 +190,14 @@ private:
     uint8_t one_second_counter = 0;
     bool target_set = false;
 
-    // use this to prevent recursion during sensor init
-    bool in_mavlink_delay = false;
-
     static const AP_Scheduler::Task scheduler_tasks[];
     static const AP_Param::Info var_info[];
     static const struct LogStructure log_structure[];
 
-    void dataflash_periodic(void);
     void one_second_loop();
     void ten_hz_logging_loop();
-    void send_heartbeat(mavlink_channel_t chan);
-    void send_attitude(mavlink_channel_t chan);
-    void send_location(mavlink_channel_t chan);
+    void send_extended_status1(mavlink_channel_t chan);
     void send_nav_controller_output(mavlink_channel_t chan);
-    void send_simstate(mavlink_channel_t chan);
-    void mavlink_check_target(const mavlink_message_t* msg);
     void gcs_data_stream_send(void);
     void gcs_update(void);
     void gcs_retry_deferred(void);
@@ -215,13 +211,9 @@ private:
     void update_scan(void);
     bool servo_test_set_servo(uint8_t servo_num, uint16_t pwm);
     void read_radio();
-    void init_barometer(bool full_calibration);
-    void update_barometer(void);
     void update_ahrs();
     void update_compass(void);
-    void compass_accumulate(void);
     void accel_cal_update(void);
-    void barometer_accumulate(void);
     void update_GPS(void);
     void init_servos();
     void update_pitch_servo(float pitch);
@@ -233,15 +225,13 @@ private:
     void update_yaw_cr_servo(float yaw);
     void update_yaw_onoff_servo(float yaw);
     void init_tracker();
-    void update_notify();
     bool get_home_eeprom(struct Location &loc);
     void set_home_eeprom(struct Location temp);
     void set_home(struct Location temp);
     void arm_servos();
     void disarm_servos();
     void prepare_servos();
-    void set_mode(enum ControlMode mode);
-    void check_usb_mux(void);
+    void set_mode(enum ControlMode mode, mode_reason_t reason);
     void update_vehicle_pos_estimate();
     void update_tracker_position();
     void update_bearing_and_distance();
@@ -253,15 +243,14 @@ private:
     void init_capabilities(void);
     void compass_cal_update();
     void Log_Write_Attitude();
-    void Log_Write_Baro(void);
     void Log_Write_Vehicle_Pos(int32_t lat,int32_t lng,int32_t alt, const Vector3f& vel);
     void Log_Write_Vehicle_Baro(float pressure, float altitude);
     void Log_Write_Vehicle_Startup_Messages();
     void log_init(void);
     bool should_log(uint32_t mask);
+    void handle_battery_failsafe(const char* type_str, const int8_t action);
 
 public:
-    void mavlink_snoop(const mavlink_message_t* msg);
     void mavlink_delay_cb();
 };
 

@@ -5,8 +5,8 @@
 #include "Plane.h"
 
 // Constructor
-AP_AdvancedFailsafe_Plane::AP_AdvancedFailsafe_Plane(AP_Mission &_mission, AP_Baro &_baro, const AP_GPS &_gps, const RCMapper &_rcmap) :
-    AP_AdvancedFailsafe(_mission, _baro, _gps, _rcmap)
+AP_AdvancedFailsafe_Plane::AP_AdvancedFailsafe_Plane(AP_Mission &_mission, const AP_GPS &_gps) :
+    AP_AdvancedFailsafe(_mission, _gps)
 {}
 
 
@@ -17,14 +17,18 @@ void AP_AdvancedFailsafe_Plane::terminate_vehicle(void)
 {
     plane.g2.servo_channels.disable_passthrough(true);
     
-    // and all aux channels
-    SRV_Channels::set_output_scaled(SRV_Channel::k_flap_auto, 100);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_flap, 100);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, SERVO_MAX);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, SERVO_MAX);
-    SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, SERVO_MAX);
-    SRV_Channels::set_output_limit(SRV_Channel::k_manual, SRV_Channel::SRV_CHANNEL_LIMIT_TRIM);
-    SRV_Channels::set_output_limit(SRV_Channel::k_none, SRV_Channel::SRV_CHANNEL_LIMIT_TRIM);
+    if (_terminate_action == TERMINATE_ACTION_LAND) {
+        plane.landing.terminate();
+    } else {
+        // aerodynamic termination is the default approach to termination
+        SRV_Channels::set_output_scaled(SRV_Channel::k_flap_auto, 100);
+        SRV_Channels::set_output_scaled(SRV_Channel::k_flap, 100);
+        SRV_Channels::set_output_scaled(SRV_Channel::k_aileron, SERVO_MAX);
+        SRV_Channels::set_output_scaled(SRV_Channel::k_rudder, SERVO_MAX);
+        SRV_Channels::set_output_scaled(SRV_Channel::k_elevator, SERVO_MAX);
+        SRV_Channels::set_output_limit(SRV_Channel::k_manual, SRV_Channel::SRV_CHANNEL_LIMIT_TRIM);
+        SRV_Channels::set_output_limit(SRV_Channel::k_none, SRV_Channel::SRV_CHANNEL_LIMIT_TRIM);
+    }
 
     plane.servos_output();
 

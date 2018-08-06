@@ -30,8 +30,11 @@ class OpticalFlow
     friend class OpticalFlow_backend;
 
 public:
-    // constructor
     OpticalFlow(AP_AHRS_NavEKF& ahrs);
+
+    /* Do not allow copies */
+    OpticalFlow(const OpticalFlow &other) = delete;
+    OpticalFlow &operator=(const OpticalFlow&) = delete;
 
     // init - initialise sensor
     void init(void);

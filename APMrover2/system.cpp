@@ -6,7 +6,6 @@ The init_ardupilot function processes everything we need for an in - air restart
 *****************************************************************************/
 
 #include "Rover.h"
-#include "version.h"
 
 static void mavlink_delay_cb_static()
 {
@@ -23,18 +22,20 @@ void Rover::init_ardupilot()
     // initialise console serial port
     serial_manager.init_console();
 
-    hal.console->printf("\n\nInit " FIRMWARE_STRING
+    hal.console->printf("\n\nInit %s"
                         "\n\nFree RAM: %u\n",
-                        hal.util->available_memory());
+                        AP::fwversion().fw_string,
+                        (unsigned)hal.util->available_memory());
 
     //
     // Check the EEPROM format version before loading any parameters from EEPROM.
     //
 
     load_parameters();
-
+#if STATS_ENABLED == ENABLED
     // initialise stats module
     g2.stats.init();
+#endif
 
     gcs().set_dataflash(&DataFlash);
 
@@ -56,9 +57,8 @@ void Rover::init_ardupilot()
 #endif
 
     // initialise notify system
-    notify.init(false);
-    AP_Notify::flags.failsafe_battery = false;
-    notify_mode((enum mode)control_mode->mode_number());
+    notify.init();
+    notify_mode(control_mode);
 
     ServoRelayEvents.set_channel_mask(0xFFF0);
 
@@ -69,17 +69,15 @@ void Rover::init_ardupilot()
     // init baro before we start the GCS, so that the CLI baro test works
     barometer.init();
 
-    // we start by assuming USB connected, as we initialed the serial
-    // port with SERIAL0_BAUD. check_usb_mux() fixes this if need be.
-    usb_connected = true;
-    check_usb_mux();
-
     // setup telem slots with serial ports
     gcs().setup_uarts(serial_manager);
 
     // setup frsky telemetry
 #if FRSKY_TELEM_ENABLED == ENABLED
-    frsky_telemetry.init(serial_manager, FIRMWARE_STRING, MAV_TYPE_GROUND_ROVER);
+    frsky_telemetry.init(serial_manager, (is_boat() ? MAV_TYPE_SURFACE_BOAT : MAV_TYPE_GROUND_ROVER));
+#endif
+#if DEVO_TELEM_ENABLED == ENABLED
+    devo_telemetry.init(serial_manager);
 #endif
 
 #if LOGGING_ENABLED == ENABLED
@@ -90,7 +88,10 @@ void Rover::init_ardupilot()
     init_compass();
 
     // initialise rangefinder
-    init_rangefinder();
+    rangefinder.init();
+
+    // init proximity sensor
+    init_proximity();
 
     // init beacons used for non-gps position estimation
     init_beacon();
@@ -99,13 +100,12 @@ void Rover::init_ardupilot()
     init_visual_odom();
 
     // and baro for EKF
-    init_barometer(true);
+    barometer.set_log_baro_bit(MASK_LOG_IMU);
+    barometer.calibrate();
 
     // Do GPS init
     gps.set_log_gps_bit(MASK_LOG_GPS);
     gps.init(serial_manager);
-
-    rc_override_active = hal.rcin->set_overrides(rc_override, 8);
 
     ins.set_log_raw_bit(MASK_LOG_IMU_RAW);
 
@@ -121,7 +121,7 @@ void Rover::init_ardupilot()
 
 #if MOUNT == ENABLED
     // initialise camera mount
-    camera_mount.init(&DataFlash, serial_manager);
+    camera_mount.init(serial_manager);
 #endif
 
     /*
@@ -133,22 +133,21 @@ void Rover::init_ardupilot()
     // give AHRS the range beacon sensor
     ahrs.set_beacon(&g2.beacon);
 
+    // initialize SmartRTL
+    g2.smart_rtl.init();
 
     init_capabilities();
 
     startup_ground();
 
-    Mode *initial_mode = control_mode_from_num((enum mode)g.initial_mode.get());
+    Mode *initial_mode = mode_from_mode_num((enum Mode::Number)g.initial_mode.get());
     if (initial_mode == nullptr) {
         initial_mode = &mode_initializing;
     }
     set_mode(*initial_mode, MODE_REASON_INITIALISED);
 
-
-    // set the correct flight mode
-    // ---------------------------
-    reset_control_switch();
-    init_aux_switch();
+    // initialise rc channels
+    rc().init();
 
     // disable safety if requested
     BoardConfig.init_safety();
@@ -177,18 +176,16 @@ void Rover::startup_ground(void)
 
     startup_INS_ground();
 
-    // read the radio to set trims
-    // ---------------------------
-    trim_radio();
-
     // initialise mission library
     mission.init();
 
     // initialise DataFlash library
+#if LOGGING_ENABLED == ENABLED
     DataFlash.set_mission(&mission);
     DataFlash.setVehicle_Startup_Log_Writer(
         FUNCTOR_BIND(&rover, &Rover::Log_Write_Vehicle_Startup_Messages, void)
         );
+#endif
 
     // we don't want writes to the serial port to cause us to pause
     // so set serial ports non-blocking once we are ready to drive
@@ -197,16 +194,33 @@ void Rover::startup_ground(void)
     gcs().send_text(MAV_SEVERITY_INFO, "Ready to drive");
 }
 
-/*
-  set the in_reverse flag
-  reset the throttle integrator if this changes in_reverse
- */
-void Rover::set_reverse(bool reverse)
+// update the ahrs flyforward setting which can allow
+// the vehicle's movements to be used to estimate heading
+void Rover::update_ahrs_flyforward()
 {
-    if (in_reverse == reverse) {
-        return;
+    bool flyforward = false;
+
+    // boats never use movement to estimate heading
+    if (!is_boat()) {
+        // throttle threshold is 15% or 1/2 cruise throttle
+        bool throttle_over_thresh = g2.motors.get_throttle() > MIN(g.throttle_cruise * 0.50f, 15.0f);
+        // desired speed threshold of 1m/s
+        bool desired_speed_over_thresh = g2.attitude_control.speed_control_active() && (g2.attitude_control.get_desired_speed() > 0.5f);
+        if (throttle_over_thresh || (is_positive(g2.motors.get_throttle()) && desired_speed_over_thresh)) {
+            uint32_t now = AP_HAL::millis();
+            // if throttle over threshold start timer
+            if (flyforward_start_ms == 0) {
+                flyforward_start_ms = now;
+            }
+            // if throttle over threshold for 2 seconds set flyforward to true
+            flyforward = (now - flyforward_start_ms > 2000);
+        } else {
+            // reset timer
+            flyforward_start_ms = 0;
+        }
     }
-    in_reverse = reverse;
+
+    ahrs.set_fly_forward(flyforward);
 }
 
 bool Rover::set_mode(Mode &new_mode, mode_reason_t reason)
@@ -226,18 +240,28 @@ bool Rover::set_mode(Mode &new_mode, mode_reason_t reason)
 
     control_mode = &new_mode;
 
+    // pilot requested flight mode change during a fence breach indicates pilot is attempting to manually recover
+    // this flight mode change could be automatic (i.e. fence, battery, GPS or GCS failsafe)
+    // but it should be harmless to disable the fence temporarily in these situations as well
+    g2.fence.manual_recovery_start();
+
 #if FRSKY_TELEM_ENABLED == ENABLED
     frsky_telemetry.update_control_mode(control_mode->mode_number());
+#endif
+#if DEVO_TELEM_ENABLED == ENABLED
+    devo_telemetry.update_control_mode(control_mode->mode_number());
+#endif
+
+#if CAMERA == ENABLED
+    camera.set_is_auto_mode(control_mode->mode_number() == Mode::Number::AUTO);
 #endif
 
     old_mode.exit();
 
-    if (should_log(MASK_LOG_MODE)) {
-        control_mode_reason = reason;
-        DataFlash.Log_Write_Mode(control_mode->mode_number(), reason);
-    }
+    control_mode_reason = reason;
+    DataFlash.Log_Write_Mode(control_mode->mode_number(), control_mode_reason);
 
-    notify_mode((enum mode)control_mode->mode_number());
+    notify_mode(control_mode);
     return true;
 }
 
@@ -255,62 +279,11 @@ void Rover::startup_INS_ground(void)
     ahrs.reset();
 }
 
-// updates the notify state
-// should be called at 50hz
-void Rover::update_notify()
-{
-    notify.update();
-}
-
-void Rover::resetPerfData(void) {
-    mainLoop_count = 0;
-    G_Dt_max = 0;
-    perf_mon_timer = millis();
-}
-
-
-void Rover::check_usb_mux(void)
-{
-    bool usb_check = hal.gpio->usb_connected();
-    if (usb_check == usb_connected) {
-        return;
-    }
-
-    // the user has switched to/from the telemetry port
-    usb_connected = usb_check;
-}
-
 // update notify with mode change
-void Rover::notify_mode(enum mode new_mode)
+void Rover::notify_mode(const Mode *mode)
 {
-    notify.flags.flight_mode = new_mode;
-
-    switch (new_mode) {
-    case MANUAL:
-        notify.set_flight_mode_str("MANU");
-        break;
-    case STEERING:
-        notify.set_flight_mode_str("STER");
-        break;
-    case HOLD:
-        notify.set_flight_mode_str("HOLD");
-        break;
-    case AUTO:
-        notify.set_flight_mode_str("AUTO");
-        break;
-    case RTL:
-        notify.set_flight_mode_str("RTL");
-        break;
-    case GUIDED:
-        notify.set_flight_mode_str("GUID");
-        break;
-    case INITIALISING:
-        notify.set_flight_mode_str("INIT");
-        break;
-    default:
-        notify.set_flight_mode_str("----");
-        break;
-    }
+    notify.flags.flight_mode = mode->mode_number();
+    notify.set_flight_mode_str(mode->name4());
 }
 
 /*
@@ -318,17 +291,13 @@ void Rover::notify_mode(enum mode new_mode)
  */
 uint8_t Rover::check_digital_pin(uint8_t pin)
 {
-    const int8_t dpin = hal.gpio->analogPinToDigitalPin(pin);
-    if (dpin == -1) {
-        return 0;
-    }
     // ensure we are in input mode
-    hal.gpio->pinMode(dpin, HAL_GPIO_INPUT);
+    hal.gpio->pinMode(pin, HAL_GPIO_INPUT);
 
     // enable pullup
-    hal.gpio->write(dpin, 1);
+    hal.gpio->write(pin, 1);
 
-    return hal.gpio->read(dpin);
+    return hal.gpio->read(pin);
 }
 
 /*
@@ -344,7 +313,7 @@ bool Rover::should_log(uint32_t mask)
  */
 void Rover::change_arm_state(void)
 {
-    Log_Arm_Disarm();
+    Log_Write_Arm_Disarm();
     update_soft_armed();
 }
 
@@ -354,8 +323,12 @@ void Rover::change_arm_state(void)
 bool Rover::arm_motors(AP_Arming::ArmingMethod method)
 {
     if (!arming.arm(method)) {
+        AP_Notify::events.arming_failed = true;
         return false;
     }
+
+    // Set the SmartRTL home location. If activated, SmartRTL will ultimately try to land at this point
+    g2.smart_rtl.set_home(true);
 
     change_arm_state();
     return true;
@@ -378,4 +351,11 @@ bool Rover::disarm_motors(void)
     change_arm_state();
 
     return true;
+}
+
+// returns true if vehicle is a boat
+// this affects whether the vehicle tries to maintain position after reaching waypoints
+bool Rover::is_boat() const
+{
+    return ((enum frame_class)g2.frame_class.get() == FRAME_BOAT);
 }

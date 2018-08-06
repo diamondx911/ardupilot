@@ -25,8 +25,6 @@
 #include <SRV_Channel/SRV_Channel.h>
 #include <GCS_MAVLink/GCS.h>
 
-#define TERMINATE 42
-
 extern const AP_HAL::HAL& hal;
 
 // table of user settable parameters
@@ -69,7 +67,7 @@ const AP_Param::GroupInfo AP_AdvancedFailsafe::var_info[] = {
 
     // @Param: TERM_ACTION
     // @DisplayName: Terminate action
-    // @Description: This can be used to force an action on flight termination. Normally this is handled by an external failsafe board, but you can setup APM to handle it here. If set to 0 (which is the default) then no extra action is taken. If set to the magic value 42 then the plane will deliberately crash itself by setting maximum throws on all surfaces, and zero throttle
+    // @Description: This can be used to force an action on flight termination. Normally this is handled by an external failsafe board, but you can setup APM to handle it here. Please consult the wiki for more information on the possible values of the parameter
     // @User: Advanced
     AP_GROUPINFO("TERM_ACTION", 6, AP_AdvancedFailsafe, _terminate_action, 0),
 
@@ -158,6 +156,9 @@ AP_AdvancedFailsafe::check(uint32_t last_heartbeat_ms, bool geofence_breached, u
     if (!_enable) {
         return;
     }
+    // only set the termination capability, clearing it can mess up copter and sub which can always be terminated
+    hal.util->set_capabilities(MAV_PROTOCOL_CAPABILITY_FLIGHT_TERMINATION);
+
     // we always check for fence breach
     if(_enable_geofence_fs) {
         if (geofence_breached || check_altlimit()) {
@@ -324,6 +325,7 @@ AP_AdvancedFailsafe::check_altlimit(void)
     }
 
     // see if the barometer is dead
+    const AP_Baro &baro = AP::baro();
     if (AP_HAL::millis() - baro.get_last_update() > 5000) {
         // the barometer has been unresponsive for 5 seconds. See if we can switch to GPS
         if (_amsl_margin_gps != -1 &&
@@ -363,8 +365,10 @@ bool AP_AdvancedFailsafe::should_crash_vehicle(void)
     // determine if the vehicle should be crashed
     // only possible if FS_TERM_ACTION is 42 and _terminate is non zero
     // _terminate may be set via parameters, or a mavlink command
-    if (_terminate_action == TERMINATE && _terminate) {
-        // we are crashing
+    if (_terminate &&
+        (_terminate_action == TERMINATE_ACTION_TERMINATE ||
+         _terminate_action == TERMINATE_ACTION_LAND)) {
+        // we are terminating
         return true;
     }
 
@@ -374,7 +378,7 @@ bool AP_AdvancedFailsafe::should_crash_vehicle(void)
 
 // update GCS based termination
 // returns true if AFS is in the desired termination state
-bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate) {
+bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate, const char *reason) {
     if (!_enable) {
         gcs().send_text(MAV_SEVERITY_INFO, "AFS not enabled, can't terminate the vehicle");
         return false;
@@ -387,12 +391,12 @@ bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate) {
 
     if(should_terminate == is_terminating) {
         if (is_terminating) {
-            gcs().send_text(MAV_SEVERITY_INFO, "Terminating due to GCS request");
+            gcs().send_text(MAV_SEVERITY_INFO, "Terminating due to %s", reason);
         } else {
-            gcs().send_text(MAV_SEVERITY_INFO, "Aborting termination due to GCS request");
+            gcs().send_text(MAV_SEVERITY_INFO, "Aborting termination due to %s", reason);
         }
         return true;
-    } else if (should_terminate && _terminate_action != TERMINATE) {
+    } else if (should_terminate && _terminate_action != TERMINATE_ACTION_TERMINATE) {
         gcs().send_text(MAV_SEVERITY_INFO, "Unable to terminate, termination is not configured");
     }
     return false;

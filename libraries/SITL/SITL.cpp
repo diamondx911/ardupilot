@@ -28,6 +28,8 @@ extern const AP_HAL::HAL& hal;
 
 namespace SITL {
 
+SITL *SITL::_s_instance = nullptr;
+
 // table of user settable parameters
 const AP_Param::GroupInfo SITL::var_info[] = {
     AP_GROUPINFO("BARO_RND",   0, SITL,  baro_noise,  0.2f),
@@ -106,6 +108,30 @@ const AP_Param::GroupInfo SITL::var_info2[] = {
     AP_GROUPINFO("GPS_LOCKTIME", 5, SITL,  gps_lock_time, 0),
     AP_GROUPINFO("ARSPD_FAIL_P", 6, SITL,  arspd_fail_pressure, 0),
     AP_GROUPINFO("ARSPD_PITOT",  7, SITL,  arspd_fail_pitot_pressure, 0),
+    AP_GROUPINFO("GPS_ALT_OFS",  8, SITL,  gps_alt_offset, 0),
+    AP_GROUPINFO("ARSPD_SIGN",   9, SITL,  arspd_signflip, 0),
+    AP_GROUPINFO("WIND_DIR_Z",  10, SITL,  wind_dir_z,     0),
+    AP_GROUPINFO("ARSPD2_FAIL", 11, SITL,  arspd2_fail, 0),
+    AP_GROUPINFO("ARSPD2_FAILP",12, SITL,  arspd2_fail_pressure, 0),
+    AP_GROUPINFO("ARSPD2_PITOT",13, SITL,  arspd2_fail_pitot_pressure, 0),
+    AP_GROUPINFO("VICON_HSTLEN",14, SITL,  vicon_observation_history_length, 0),
+    AP_GROUPINFO("WIND_T"      ,15, SITL,  wind_type, SITL::WIND_TYPE_SQRT),
+    AP_GROUPINFO("WIND_T_ALT"  ,16, SITL,  wind_type_alt, 60),
+    AP_GROUPINFO("WIND_T_COEF", 17, SITL,  wind_type_coef, 0.01f),
+    AP_GROUPINFO("MAG_DIA",     18, SITL,  mag_diag, 0),
+    AP_GROUPINFO("MAG_ODI",     19, SITL,  mag_offdiag, 0),
+    AP_GROUPINFO("MAG_ORIENT",  20, SITL,  mag_orient, 0),
+    AP_GROUPINFO("RC_CHANCOUNT",21, SITL,  rc_chancount, 16),
+    // @Group: SPR_
+    // @Path: ./SIM_Sprayer.cpp
+    AP_SUBGROUPINFO(sprayer_sim, "SPR_", 22, SITL, Sprayer),
+    // @Group: GRPS_
+    // @Path: ./SIM_Gripper_Servo.cpp
+    AP_SUBGROUPINFO(gripper_sim, "GRPS_", 23, SITL, Gripper_Servo),
+    // @Group: GRPE_
+    // @Path: ./SIM_Gripper_EPM.cpp
+    AP_SUBGROUPINFO(gripper_epm_sim, "GRPE_", 24, SITL, Gripper_EPM),
+
     AP_GROUPEND
 };
     
@@ -210,3 +236,13 @@ Vector3f SITL::convert_earth_frame(const Matrix3f &dcm, const Vector3f &gyro)
 }
 
 } // namespace SITL
+
+
+namespace AP {
+
+SITL::SITL *sitl()
+{
+    return SITL::SITL::get_instance();
+}
+
+};
